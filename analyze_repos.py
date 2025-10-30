@@ -6,14 +6,16 @@ Script to analyze GitLab repositories using multiple analysis tools:
 - Lizard: Code complexity analysis
 - Trivy: Vulnerability scanning
 - CodeMaat: Code evolution analysis (last 2 years)
+- Hotspot Analysis: Identify high-risk code (high complexity + high change frequency)
 
 Reads a list of repository URLs from a text file, clones each repository,
-runs analyses, and stores results in JSON format.
+runs analyses, and stores results in JSON/CSV format.
 """
 
 import os
 import sys
 import json
+import csv
 import subprocess
 import shutil
 import tempfile
@@ -527,6 +529,177 @@ def analyze_with_codemaat(repo_path, repo_name, repo_results_dir, jar_path='./to
         return None
 
 
+def analyze_hotspots(repo_name, repo_results_dir, complexity_data, codemaat_enabled):
+    """
+    Identify code hotspots by combining revisions (change frequency) and complexity.
+    
+    Hotspots = High change frequency + High complexity
+    These are high-risk areas that need attention.
+    """
+    if not codemaat_enabled:
+        return None
+    
+    print(f"  Analyzing code hotspots...")
+    
+    try:
+        # 1. Load revisions data (change frequency from CodeMaat)
+        revisions_file = os.path.join(repo_results_dir, f"{repo_name}_cm_revisions.csv")
+        
+        if not os.path.exists(revisions_file):
+            print(f"  ⚠️  Revisions file not found, skipping hotspot analysis")
+            return None
+        
+        revisions = {}
+        with open(revisions_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            if len(lines) < 2:
+                return None
+            
+            # Skip header
+            for line in lines[1:]:
+                line = line.strip()
+                if line:
+                    parts = line.split(',')
+                    if len(parts) >= 2:
+                        entity = parts[0].strip('"')
+                        try:
+                            n_revs = int(parts[1])
+                            revisions[entity] = n_revs
+                        except ValueError:
+                            continue
+        
+        if not revisions:
+            print(f"  ⚠️  No revision data found")
+            return None
+        
+        # 2. Aggregate complexity by file from Lizard data
+        if not complexity_data or not complexity_data.get('functions'):
+            print(f"  ⚠️  No complexity data available")
+            return None
+        
+        file_complexity = {}
+        for func in complexity_data['functions']:
+            file_path = func['file']
+            complexity = func['cyclomatic_complexity']
+            nloc = func['nloc']
+            
+            if file_path not in file_complexity:
+                file_complexity[file_path] = {
+                    'max_complexity': 0,
+                    'total_complexity': 0,
+                    'function_count': 0,
+                    'total_nloc': 0
+                }
+            
+            file_complexity[file_path]['function_count'] += 1
+            file_complexity[file_path]['total_complexity'] += complexity
+            file_complexity[file_path]['total_nloc'] += nloc
+            file_complexity[file_path]['max_complexity'] = max(
+                file_complexity[file_path]['max_complexity'], 
+                complexity
+            )
+        
+        # Calculate averages
+        for file_path in file_complexity:
+            file_complexity[file_path]['avg_complexity'] = round(
+                file_complexity[file_path]['total_complexity'] / 
+                file_complexity[file_path]['function_count'], 
+                2
+            )
+        
+        # 3. Combine revisions + complexity to find hotspots
+        hotspots = []
+        
+        for file_path, revs in revisions.items():
+            # Try to match file paths (CodeMaat may have different path format)
+            matched_complexity = None
+            
+            # Direct match
+            if file_path in file_complexity:
+                matched_complexity = file_complexity[file_path]
+            else:
+                # Partial match (file ends with path or vice versa)
+                for complex_file in file_complexity.keys():
+                    if complex_file.endswith(file_path) or file_path.endswith(complex_file):
+                        matched_complexity = file_complexity[complex_file]
+                        break
+            
+            if matched_complexity:
+                avg_complexity = matched_complexity['avg_complexity']
+                max_complexity = matched_complexity['max_complexity']
+                
+                # Calculate hotspot score
+                # Formula: (revisions * complexity) with normalization
+                # Higher score = bigger hotspot/problem
+                hotspot_score = round(
+                    (revs / 10) * (avg_complexity / 5) * 10, 
+                    2
+                )
+                
+                # Risk level classification
+                risk_level = 'LOW'
+                if revs >= 50 and avg_complexity >= 15:
+                    risk_level = 'CRITICAL'
+                elif revs >= 50 and avg_complexity >= 8:
+                    risk_level = 'HIGH'
+                elif revs >= 30 and avg_complexity >= 8:
+                    risk_level = 'HIGH'
+                elif revs >= 20 or avg_complexity >= 10:
+                    risk_level = 'MEDIUM'
+                
+                hotspots.append({
+                    'file': file_path,
+                    'revisions': revs,
+                    'avg_complexity': avg_complexity,
+                    'max_complexity': max_complexity,
+                    'function_count': matched_complexity['function_count'],
+                    'total_nloc': matched_complexity['total_nloc'],
+                    'hotspot_score': hotspot_score,
+                    'risk_level': risk_level
+                })
+        
+        if not hotspots:
+            print(f"  ⚠️  No hotspots identified")
+            return None
+        
+        # Sort by hotspot score (highest first)
+        hotspots.sort(key=lambda x: x['hotspot_score'], reverse=True)
+        
+        # Save to CSV
+        csv_filename = f"{repo_name}_hotspots.csv"
+        csv_path = os.path.join(repo_results_dir, csv_filename)
+        
+        with open(csv_path, 'w', encoding='utf-8', newline='') as f:
+            if hotspots:
+                fieldnames = ['file', 'risk_level', 'hotspot_score', 'revisions', 
+                             'avg_complexity', 'max_complexity', 'function_count', 'total_nloc']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(hotspots)
+        
+        # Count by risk level
+        risk_counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}
+        for h in hotspots:
+            risk_counts[h['risk_level']] += 1
+        
+        print(f"  ✅ Hotspots identified: {len(hotspots)} files")
+        print(f"     🔴 CRITICAL: {risk_counts['CRITICAL']}, "
+              f"🟠 HIGH: {risk_counts['HIGH']}, "
+              f"🟡 MEDIUM: {risk_counts['MEDIUM']}, "
+              f"🟢 LOW: {risk_counts['LOW']}")
+        print(f"     Saved to: {csv_filename}")
+        
+        return {
+            'total_hotspots': len(hotspots),
+            'risk_counts': risk_counts,
+            'top_5': hotspots[:5]
+        }
+        
+    except Exception as e:
+        print(f"  Error analyzing hotspots: {e}")
+        return None
+
+
 def save_results(data, output_path):
     """Save analysis results to JSON file"""
     try:
@@ -627,6 +800,7 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
             analysis_results['techstack'] = False
         
         # Run Lizard analysis (code complexity)
+        lizard_data = None
         if run_lizard:
             lizard_data = analyze_with_lizard(clone_path)
             if lizard_data:
@@ -661,13 +835,24 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
                 analysis_results['vulnerabilities'] = False
         
         # Run CodeMaat analysis (code evolution)
+        codemaat_successful = False
         if run_codemaat:
             codemaat_summary = analyze_with_codemaat(clone_path, repo_name, repo_results_dir, codemaat_jar_path)
             if codemaat_summary and codemaat_summary['successful'] > 0:
                 print(f"  📊 CodeMaat: {codemaat_summary['successful']}/{codemaat_summary['total']} analyses completed")
                 analysis_results['codemaat'] = True
+                codemaat_successful = True
             else:
                 analysis_results['codemaat'] = False
+        
+        # Run Hotspot analysis (combines Lizard + CodeMaat)
+        # Automatically runs if both Lizard and CodeMaat data are available
+        if run_lizard and codemaat_successful and lizard_data:
+            hotspot_summary = analyze_hotspots(repo_name, repo_results_dir, lizard_data, True)
+            if hotspot_summary:
+                analysis_results['hotspots'] = True
+            else:
+                analysis_results['hotspots'] = False
         
         # Print summary
         print(f"\n  📊 Analysis Summary:")
@@ -777,6 +962,7 @@ Output structure:
       {repo_name}_cm_soc.csv
       {repo_name}_cm_main_dev_by_revs.csv
       {repo_name}_cm_refactoring_main_dev.csv
+      {repo_name}_hotspots.csv (Code hotspots - if Lizard + CodeMaat enabled)
     access_error.txt (Failed repositories)
         """
     )
