@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """
-Script to analyze GitLab repositories using SCC (Sloc Cloc and Code)
+Script to analyze GitLab repositories using multiple analysis tools:
+- SCC: Source code counter (tech stack analysis)
+- Lizard: Code complexity analysis
+- Trivy: Vulnerability scanning
+
 Reads a list of repository URLs from a text file, clones each repository,
-runs scc analysis, and stores results in JSON format.
+runs analyses, and stores results in JSON format.
 """
 
 import os
@@ -14,6 +18,7 @@ import tempfile
 import argparse
 import time
 from datetime import datetime
+from io import StringIO
 
 # ============================================================================
 # CONFIGURATION
@@ -128,6 +133,186 @@ def analyze_with_scc(repo_path, scc_path):
     return None
 
 
+def analyze_with_lizard(repo_path):
+    """Run Lizard code complexity analysis using Python library"""
+    print(f"  Running Lizard complexity analysis...")
+    try:
+        # Import lizard library
+        import lizard
+        
+        # Run lizard analysis on the repository
+        analysis_result = lizard.analyze(
+            paths=[repo_path],
+            exclude_pattern=".*/(test|tests|node_modules|venv|__pycache__|.git)/.*",
+            working_threads=1
+        )
+        
+        # Convert results to dictionary format
+        functions_list = []
+        for item in analysis_result:
+            if hasattr(item, 'function_list'):
+                for func in item.function_list:
+                    functions_list.append({
+                        'name': func.name,
+                        'long_name': func.long_name,
+                        'file': item.filename,
+                        'start_line': func.start_line,
+                        'end_line': func.end_line,
+                        'nloc': func.nloc,
+                        'cyclomatic_complexity': func.cyclomatic_complexity,
+                        'token_count': func.token_count,
+                        'parameter_count': len(func.parameters) if hasattr(func, 'parameters') else 0,
+                        'length': func.length,
+                        'fan_in': func.fan_in if hasattr(func, 'fan_in') else 0,
+                        'fan_out': func.fan_out if hasattr(func, 'fan_out') else 0,
+                        'general_fan_out': func.general_fan_out if hasattr(func, 'general_fan_out') else 0,
+                    })
+        
+        # Calculate summary statistics
+        if functions_list:
+            complexities = [f['cyclomatic_complexity'] for f in functions_list]
+            summary = {
+                'total_functions': len(functions_list),
+                'average_complexity': round(sum(complexities) / len(complexities), 2),
+                'max_complexity': max(complexities),
+                'min_complexity': min(complexities),
+                'complexity_distribution': {
+                    'low': len([f for f in functions_list if f['cyclomatic_complexity'] <= 5]),
+                    'medium': len([f for f in functions_list if 5 < f['cyclomatic_complexity'] <= 10]),
+                    'high': len([f for f in functions_list if 10 < f['cyclomatic_complexity'] <= 20]),
+                    'very_high': len([f for f in functions_list if f['cyclomatic_complexity'] > 20])
+                },
+                'total_nloc': sum(f['nloc'] for f in functions_list)
+            }
+        else:
+            summary = {
+                'total_functions': 0,
+                'average_complexity': 0,
+                'max_complexity': 0,
+                'min_complexity': 0
+            }
+        
+        return {
+            'summary': summary,
+            'functions': functions_list[:100]  # Limit to top 100 functions for file size
+        }
+        
+    except ImportError:
+        print(f"  Warning: Lizard library not installed. Skipping complexity analysis.")
+        print(f"  Install with: pip install lizard")
+        return None
+    except Exception as e:
+        print(f"  Error running Lizard analysis: {e}")
+        return None
+
+
+def analyze_with_trivy(repo_path):
+    """Run Trivy vulnerability scanning"""
+    print(f"  Running Trivy vulnerability scan...")
+    try:
+        # Check if trivy is available
+        trivy_cmd = shutil.which("trivy")
+        if not trivy_cmd:
+            print(f"  Warning: Trivy not found in PATH. Skipping vulnerability scan.")
+            return None
+        
+        # Run trivy filesystem scan
+        cmd = [
+            trivy_cmd, "fs",
+            "--scanners", "vuln,secret,misconfig",
+            "--format", "json",
+            "--exit-code", "0",
+            "--timeout", "10m",
+            "--quiet",
+            repo_path
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600  # 10 minute timeout
+        )
+        
+        if result.returncode != 0:
+            print(f"  Warning: Trivy scan returned errors: {result.stderr}")
+            return None
+        
+        if not result.stdout.strip():
+            return {'vulnerabilities': [], 'secrets': [], 'misconfigurations': []}
+        
+        # Parse JSON output
+        trivy_data = json.loads(result.stdout)
+        
+        # Extract and summarize results
+        vulnerabilities = []
+        secrets = []
+        misconfigs = []
+        
+        if 'Results' in trivy_data:
+            for scan_result in trivy_data['Results']:
+                # Vulnerabilities
+                if 'Vulnerabilities' in scan_result and scan_result['Vulnerabilities']:
+                    for vuln in scan_result['Vulnerabilities']:
+                        vulnerabilities.append({
+                            'id': vuln.get('VulnerabilityID'),
+                            'package': vuln.get('PkgName'),
+                            'installed_version': vuln.get('InstalledVersion'),
+                            'fixed_version': vuln.get('FixedVersion'),
+                            'severity': vuln.get('Severity'),
+                            'title': vuln.get('Title', '')[:200]  # Truncate long titles
+                        })
+                
+                # Secrets
+                if 'Secrets' in scan_result and scan_result['Secrets']:
+                    for secret in scan_result['Secrets']:
+                        secrets.append({
+                            'category': secret.get('Category'),
+                            'severity': secret.get('Severity'),
+                            'title': secret.get('Title'),
+                            'match': secret.get('Match', '')[:100]  # Truncate
+                        })
+                
+                # Misconfigurations
+                if 'Misconfigurations' in scan_result and scan_result['Misconfigurations']:
+                    for misconfig in scan_result['Misconfigurations']:
+                        misconfigs.append({
+                            'type': misconfig.get('Type'),
+                            'id': misconfig.get('ID'),
+                            'title': misconfig.get('Title'),
+                            'severity': misconfig.get('Severity'),
+                            'message': misconfig.get('Message', '')[:200]
+                        })
+        
+        # Create summary
+        severity_counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'UNKNOWN': 0}
+        for vuln in vulnerabilities:
+            severity = vuln.get('severity', 'UNKNOWN')
+            severity_counts[severity] = severity_counts.get(severity, 0) + 1
+        
+        return {
+            'summary': {
+                'total_vulnerabilities': len(vulnerabilities),
+                'total_secrets': len(secrets),
+                'total_misconfigurations': len(misconfigs),
+                'severity_counts': severity_counts
+            },
+            'vulnerabilities': vulnerabilities[:50],  # Limit to 50 for file size
+            'secrets': secrets[:20],
+            'misconfigurations': misconfigs[:20]
+        }
+        
+    except FileNotFoundError:
+        print(f"  Warning: Trivy not found. Skipping vulnerability scan.")
+        return None
+    except subprocess.TimeoutExpired:
+        print(f"  Warning: Trivy scan timed out.")
+        return None
+    except Exception as e:
+        print(f"  Error running Trivy scan: {e}")
+        return None
+
+
 def save_results(data, output_path):
     """Save analysis results to JSON file"""
     try:
@@ -169,10 +354,11 @@ def log_access_error(repo_url, error_message, results_dir):
         return False
 
 
-def process_repository(repo_url, results_dir, temp_base_dir, scc_path):
+def process_repository(repo_url, results_dir, temp_base_dir, scc_path, run_lizard=True, run_trivy=False):
     """Process a single repository: clone, analyze, and save results"""
     repo_name = extract_repo_name(repo_url)
     print(f"\nProcessing: {repo_name}")
+    print(f"="*60)
     
     # Create a temporary directory for this specific repo
     temp_dir = tempfile.mkdtemp(dir=temp_base_dir, prefix=f"{repo_name}_")
@@ -188,24 +374,67 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path):
             log_access_error(repo_url, clone_error, results_dir)
             return False
         
-        # Run SCC analysis
+        analysis_results = {}
+        
+        # Run SCC analysis (tech stack)
         scc_data = analyze_with_scc(clone_path, scc_path)
-        if not scc_data:
-            print(f"  Failed to analyze repository: {repo_name}")
-            return False
+        if scc_data:
+            scc_results = {
+                "repository_url": repo_url,
+                "repository_name": repo_name,
+                "analysis_type": "techstack",
+                "tool": "scc",
+                "analysis": scc_data
+            }
+            output_file = os.path.join(results_dir, f"{repo_name}_techStack.json")
+            if save_results(scc_results, output_file):
+                analysis_results['techstack'] = True
+        else:
+            print(f"  ⚠️  SCC analysis failed")
+            analysis_results['techstack'] = False
         
-        # Add metadata to the results
-        results = {
-            "repository_url": repo_url,
-            "repository_name": repo_name,
-            "analysis": scc_data
-        }
+        # Run Lizard analysis (code complexity)
+        if run_lizard:
+            lizard_data = analyze_with_lizard(clone_path)
+            if lizard_data:
+                lizard_results = {
+                    "repository_url": repo_url,
+                    "repository_name": repo_name,
+                    "analysis_type": "complexity",
+                    "tool": "lizard",
+                    "analysis": lizard_data
+                }
+                output_file = os.path.join(results_dir, f"{repo_name}_complexity.json")
+                if save_results(lizard_results, output_file):
+                    analysis_results['complexity'] = True
+            else:
+                analysis_results['complexity'] = False
         
-        # Save results
-        output_file = os.path.join(results_dir, f"{repo_name}_techStack.json")
-        success = save_results(results, output_file)
+        # Run Trivy analysis (vulnerabilities)
+        if run_trivy:
+            trivy_data = analyze_with_trivy(clone_path)
+            if trivy_data:
+                trivy_results = {
+                    "repository_url": repo_url,
+                    "repository_name": repo_name,
+                    "analysis_type": "vulnerabilities",
+                    "tool": "trivy",
+                    "analysis": trivy_data
+                }
+                output_file = os.path.join(results_dir, f"{repo_name}_vulnerabilities.json")
+                if save_results(trivy_results, output_file):
+                    analysis_results['vulnerabilities'] = True
+            else:
+                analysis_results['vulnerabilities'] = False
         
-        return success
+        # Print summary
+        print(f"\n  📊 Analysis Summary:")
+        for analysis_type, success in analysis_results.items():
+            status = "✅" if success else "❌"
+            print(f"     {status} {analysis_type.capitalize()}")
+        
+        # Return True if at least one analysis succeeded
+        return any(analysis_results.values())
         
     except Exception as e:
         print(f"  Error processing repository {repo_name}: {e}")
@@ -259,12 +488,19 @@ def read_repository_list(file_path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Analyze GitLab repositories using SCC',
+        description='Analyze GitLab repositories using multiple analysis tools',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Analysis Tools:
+  - SCC: Source code counter (tech stack) - Always enabled
+  - Lizard: Code complexity analysis - Enabled by default (use --no-lizard to disable)
+  - Trivy: Vulnerability scanning - Disabled by default (use --trivy to enable)
+
 Examples:
   python3 analyze_repos.py repos.txt
   python3 analyze_repos.py repos.txt -o /path/to/results
+  python3 analyze_repos.py repos.txt --trivy
+  python3 analyze_repos.py repos.txt --no-lizard --trivy
   python3 analyze_repos.py repos.txt --scc-path /usr/local/bin/scc
   
 Input file format (one repository URL per line):
@@ -272,6 +508,12 @@ Input file format (one repository URL per line):
   https://gitlab.com/user/repo2
   # This is a comment
   https://gitlab.com/user/repo3.git
+
+Output files per repository:
+  - {repo_name}_techStack.json (SCC results)
+  - {repo_name}_complexity.json (Lizard results, if enabled)
+  - {repo_name}_vulnerabilities.json (Trivy results, if enabled)
+  - access_error.txt (Failed repositories)
         """
     )
     
@@ -290,6 +532,18 @@ Input file format (one repository URL per line):
         '--scc-path',
         default=SCC_PATH,
         help=f'Path to SCC executable (default: {SCC_PATH})'
+    )
+    
+    parser.add_argument(
+        '--no-lizard',
+        action='store_true',
+        help='Disable Lizard code complexity analysis (enabled by default)'
+    )
+    
+    parser.add_argument(
+        '--trivy',
+        action='store_true',
+        help='Enable Trivy vulnerability scanning (disabled by default)'
     )
     
     args = parser.parse_args()
@@ -328,13 +582,25 @@ Input file format (one repository URL per line):
     temp_base_dir = tempfile.mkdtemp(prefix="repo_analysis_")
     print(f"Using temporary directory: {temp_base_dir}")
     
+    # Determine which analyses to run
+    run_lizard = not args.no_lizard
+    run_trivy = args.trivy
+    
+    # Display configuration
+    print(f"\nAnalysis Configuration:")
+    print(f"  SCC (TechStack): ✅ Always enabled")
+    print(f"  Lizard (Complexity): {'✅ Enabled' if run_lizard else '❌ Disabled'}")
+    print(f"  Trivy (Vulnerabilities): {'✅ Enabled' if run_trivy else '❌ Disabled'}")
+    print()
+    
     try:
         # Process each repository
         successful = 0
         failed = 0
         
         for repo_url in repositories:
-            if process_repository(repo_url, results_dir, temp_base_dir, scc_path):
+            if process_repository(repo_url, results_dir, temp_base_dir, scc_path, 
+                                run_lizard=run_lizard, run_trivy=run_trivy):
                 successful += 1
             else:
                 failed += 1
