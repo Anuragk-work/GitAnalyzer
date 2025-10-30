@@ -30,6 +30,14 @@ from io import StringIO
 #   - Relative path: './tools/scc'
 #   - Windows: 'C:\\tools\\scc.exe' or 'scc.exe'
 SCC_PATH = 'scc'  # Default: use 'scc' from system PATH
+
+# Path to Trivy executable - modify this to point to your trivy installation
+# Examples:
+#   - System PATH: 'trivy'
+#   - Absolute path: '/usr/local/bin/trivy'
+#   - Relative path: './tools/trivy'
+#   - Windows: 'C:\\tools\\trivy.exe' or 'trivy.exe'
+TRIVY_PATH = 'trivy'  # Default: use 'trivy' from system PATH
 # ============================================================================
 
 
@@ -206,15 +214,21 @@ def analyze_with_lizard(repo_path):
         return None
 
 
-def analyze_with_trivy(repo_path):
+def analyze_with_trivy(repo_path, trivy_path='trivy'):
     """Run Trivy vulnerability scanning"""
     print(f"  Running Trivy vulnerability scan...")
     try:
-        # Check if trivy is available
-        trivy_cmd = shutil.which("trivy")
-        if not trivy_cmd:
-            print(f"  Warning: Trivy not found in PATH. Skipping vulnerability scan.")
-            return None
+        # Check if trivy is available at the specified path
+        # If trivy_path is a relative/absolute path, use it directly
+        # If it's just 'trivy', try to find it in PATH
+        if os.path.isfile(trivy_path):
+            trivy_cmd = trivy_path
+        else:
+            trivy_cmd = shutil.which(trivy_path)
+            if not trivy_cmd:
+                print(f"  Warning: Trivy not found at: {trivy_path}")
+                print(f"  Skipping vulnerability scan.")
+                return None
         
         # Run trivy filesystem scan
         cmd = [
@@ -354,7 +368,7 @@ def log_access_error(repo_url, error_message, results_dir):
         return False
 
 
-def process_repository(repo_url, results_dir, temp_base_dir, scc_path, run_lizard=True, run_trivy=False):
+def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_path='trivy', run_lizard=True, run_trivy=False):
     """Process a single repository: clone, analyze, and save results"""
     repo_name = extract_repo_name(repo_url)
     print(f"\nProcessing: {repo_name}")
@@ -412,7 +426,7 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, run_lizar
         
         # Run Trivy analysis (vulnerabilities)
         if run_trivy:
-            trivy_data = analyze_with_trivy(clone_path)
+            trivy_data = analyze_with_trivy(clone_path, trivy_path)
             if trivy_data:
                 trivy_results = {
                     "repository_url": repo_url,
@@ -502,6 +516,7 @@ Examples:
   python3 analyze_repos.py repos.txt --trivy
   python3 analyze_repos.py repos.txt --no-lizard --trivy
   python3 analyze_repos.py repos.txt --scc-path /usr/local/bin/scc
+  python3 analyze_repos.py repos.txt --trivy --trivy-path ./tools/trivy
   
 Input file format (one repository URL per line):
   https://gitlab.com/user/repo1.git
@@ -535,6 +550,12 @@ Output files per repository:
     )
     
     parser.add_argument(
+        '--trivy-path',
+        default=TRIVY_PATH,
+        help=f'Path to Trivy executable (default: {TRIVY_PATH})'
+    )
+    
+    parser.add_argument(
         '--no-lizard',
         action='store_true',
         help='Disable Lizard code complexity analysis (enabled by default)'
@@ -548,8 +569,9 @@ Output files per repository:
     
     args = parser.parse_args()
     
-    # Use the scc path from arguments or configuration
+    # Use the tool paths from arguments or configuration
     scc_path = args.scc_path
+    trivy_path = args.trivy_path
     
     # Check if scc is installed
     print(f"Using SCC from: {scc_path}")
@@ -599,7 +621,7 @@ Output files per repository:
         failed = 0
         
         for repo_url in repositories:
-            if process_repository(repo_url, results_dir, temp_base_dir, scc_path, 
+            if process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_path,
                                 run_lizard=run_lizard, run_trivy=run_trivy):
                 successful += 1
             else:
