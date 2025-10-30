@@ -87,7 +87,6 @@ def clone_repository(repo_url, clone_dir):
         # Build the git clone command with configurations
         cmd = ["git"] + git_config + [
             "clone",
-            "--depth", "1",                        # Shallow clone (faster)
             "--single-branch",                     # Only main/default branch
             repo_url,
             clone_dir
@@ -98,7 +97,7 @@ def clone_repository(repo_url, clone_dir):
             capture_output=True,
             text=True,
             check=True,
-            timeout=120  # 2 minute timeout
+            timeout=600  # 10 minute timeout for full clone
         )
         return True, None
     except subprocess.CalledProcessError as e:
