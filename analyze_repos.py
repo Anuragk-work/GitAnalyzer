@@ -12,6 +12,7 @@ import subprocess
 import shutil
 import tempfile
 import argparse
+from datetime import datetime
 
 # ============================================================================
 # CONFIGURATION
@@ -74,8 +75,23 @@ def check_scc_installed(scc_path):
 def clone_repository(repo_url, clone_dir):
     """Clone a GitLab repository"""
     print(f"  Cloning repository: {repo_url}")
-    result = run_command(f"git clone --depth 1 {repo_url} {clone_dir}")
-    return result is not None
+    try:
+        result = subprocess.run(
+            f"git clone --depth 1 {repo_url} {clone_dir}",
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=120  # 2 minute timeout
+        )
+        return True, None
+    except subprocess.CalledProcessError as e:
+        error_msg = e.stderr if e.stderr else str(e)
+        return False, error_msg
+    except subprocess.TimeoutExpired:
+        return False, "Clone operation timed out"
+    except Exception as e:
+        return False, str(e)
 
 
 def analyze_with_scc(repo_path, scc_path):
@@ -111,6 +127,30 @@ def save_results(data, output_path):
         return False
 
 
+def log_access_error(repo_url, error_message, results_dir):
+    """Log repository access errors to access_error.txt"""
+    try:
+        # Create results directory if it doesn't exist
+        if not os.path.exists(results_dir):
+            os.makedirs(results_dir, exist_ok=True)
+        
+        error_file = os.path.join(results_dir, 'access_error.txt')
+        
+        # Append error to file
+        with open(error_file, 'a', encoding='utf-8') as f:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"{repo_url}\n")
+            f.write(f"  Error: {error_message}\n")
+            f.write(f"  Timestamp: {timestamp}\n")
+            f.write("-" * 80 + "\n")
+        
+        print(f"  Access error logged to: {error_file}")
+        return True
+    except Exception as e:
+        print(f"  Warning: Failed to log access error: {e}")
+        return False
+
+
 def process_repository(repo_url, results_dir, temp_base_dir, scc_path):
     """Process a single repository: clone, analyze, and save results"""
     repo_name = extract_repo_name(repo_url)
@@ -122,8 +162,12 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path):
     
     try:
         # Clone the repository
-        if not clone_repository(repo_url, clone_path):
-            print(f"  Failed to clone repository: {repo_url}")
+        clone_success, clone_error = clone_repository(repo_url, clone_path)
+        if not clone_success:
+            print(f"  ❌ Failed to clone repository: {repo_url}")
+            print(f"  Error: {clone_error}")
+            # Log to access_error.txt
+            log_access_error(repo_url, clone_error, results_dir)
             return False
         
         # Run SCC analysis
@@ -266,6 +310,10 @@ Input file format (one repository URL per line):
         print(f"Total repositories: {len(repositories)}")
         print(f"Successfully processed: {successful}")
         print(f"Failed: {failed}")
+        if failed > 0:
+            error_file = os.path.join(results_dir, 'access_error.txt')
+            if os.path.exists(error_file):
+                print(f"Access errors logged in: {error_file}")
         print(f"Results directory: {results_dir}")
         print("="*60)
         
