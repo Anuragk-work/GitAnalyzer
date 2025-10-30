@@ -12,6 +12,7 @@ import subprocess
 import shutil
 import tempfile
 import argparse
+import time
 from datetime import datetime
 
 # ============================================================================
@@ -73,12 +74,27 @@ def check_scc_installed(scc_path):
 
 
 def clone_repository(repo_url, clone_dir):
-    """Clone a GitLab repository"""
+    """Clone a GitLab repository with Windows compatibility"""
     print(f"  Cloning repository: {repo_url}")
     try:
+        # Add Windows-specific configurations to handle long paths and checkout issues
+        git_config = [
+            "-c", "core.longpaths=true",           # Handle long file paths on Windows
+            "-c", "core.protectNTFS=false",        # Allow special characters
+            "-c", "core.filemode=false",           # Ignore file permissions
+        ]
+        
+        # Build the git clone command with configurations
+        cmd = ["git"] + git_config + [
+            "clone",
+            "--depth", "1",                        # Shallow clone (faster)
+            "--single-branch",                     # Only main/default branch
+            repo_url,
+            clone_dir
+        ]
+        
         result = subprocess.run(
-            f"git clone --depth 1 {repo_url} {clone_dir}",
-            shell=True,
+            cmd,
             capture_output=True,
             text=True,
             check=True,
@@ -87,6 +103,9 @@ def clone_repository(repo_url, clone_dir):
         return True, None
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr if e.stderr else str(e)
+        # Check if checkout failed specifically
+        if "checkout" in error_msg.lower() and "failed" in error_msg.lower():
+            error_msg = f"Checkout failed (likely Windows path/permission issue): {error_msg}"
         return False, error_msg
     except subprocess.TimeoutExpired:
         return False, "Clone operation timed out"
@@ -196,8 +215,26 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path):
         # Clean up cloned repository
         try:
             if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir)
-                print(f"  Cleaned up temporary files")
+                # On Windows, sometimes files are locked. Try multiple times with delay
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        # Make files writable before deletion (Windows issue)
+                        for root, dirs, files in os.walk(temp_dir):
+                            for d in dirs:
+                                os.chmod(os.path.join(root, d), 0o777)
+                            for f in files:
+                                os.chmod(os.path.join(root, f), 0o777)
+                        
+                        shutil.rmtree(temp_dir)
+                        print(f"  Cleaned up temporary files")
+                        break
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            time.sleep(1)  # Wait 1 second before retry
+                        else:
+                            print(f"  Warning: Failed to clean up {temp_dir}: {e}")
+                            print(f"  You may need to manually delete: {temp_dir}")
         except Exception as e:
             print(f"  Warning: Failed to clean up {temp_dir}: {e}")
 
