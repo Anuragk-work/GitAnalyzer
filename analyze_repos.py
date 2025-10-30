@@ -395,6 +395,10 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
     print(f"\nProcessing: {repo_name}")
     print(f"="*60)
     
+    # Create a dedicated results directory for this repository
+    repo_results_dir = os.path.join(results_dir, repo_name)
+    os.makedirs(repo_results_dir, exist_ok=True)
+    
     # Create a temporary directory for this specific repo
     temp_dir = tempfile.mkdtemp(dir=temp_base_dir, prefix=f"{repo_name}_")
     clone_path = os.path.join(temp_dir, repo_name)
@@ -421,7 +425,7 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
                 "tool": "scc",
                 "analysis": scc_data
             }
-            output_file = os.path.join(results_dir, f"{repo_name}_techStack.json")
+            output_file = os.path.join(repo_results_dir, "techStack.json")
             if save_results(scc_results, output_file):
                 analysis_results['techstack'] = True
         else:
@@ -439,7 +443,7 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
                     "tool": "lizard",
                     "analysis": lizard_data
                 }
-                output_file = os.path.join(results_dir, f"{repo_name}_complexity.json")
+                output_file = os.path.join(repo_results_dir, "complexity.json")
                 if save_results(lizard_results, output_file):
                     analysis_results['complexity'] = True
             else:
@@ -456,7 +460,7 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
                     "tool": "trivy",
                     "analysis": trivy_data
                 }
-                output_file = os.path.join(results_dir, f"{repo_name}_vulnerabilities.json")
+                output_file = os.path.join(repo_results_dir, "vulnerabilities.json")
                 if save_results(trivy_results, output_file):
                     analysis_results['vulnerabilities'] = True
             else:
@@ -546,11 +550,13 @@ Input file format (one repository URL per line):
   # This is a comment
   https://gitlab.com/user/repo3.git
 
-Output files per repository:
-  - {repo_name}_techStack.json (SCC results)
-  - {repo_name}_complexity.json (Lizard results, if enabled)
-  - {repo_name}_vulnerabilities.json (Trivy results, if enabled)
-  - access_error.txt (Failed repositories)
+Output structure:
+  results/
+    {repo_name}/
+      techStack.json (SCC results)
+      complexity.json (Lizard results, if enabled)
+      vulnerabilities.json (Trivy results, if enabled)
+    access_error.txt (Failed repositories)
         """
     )
     
