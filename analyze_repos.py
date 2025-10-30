@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Script to analyze GitLab repositories using multiple analysis tools:
+- Git Commit History: Extract all commit data
 - SCC: Source code counter (tech stack analysis)
 - Lizard: Code complexity analysis
 - Trivy: Vulnerability scanning
@@ -132,6 +133,55 @@ def clone_repository(repo_url, clone_dir):
         return False, "Clone operation timed out"
     except Exception as e:
         return False, str(e)
+
+
+def collect_commit_data(repo_path):
+    """Collect git commit history data"""
+    print(f"  Collecting commit history...")
+    try:
+        # Git log command to extract commit data
+        cmd = [
+            "git", "-C", repo_path,
+            "log", "--all",
+            "--date=iso-strict",
+            "--pretty=format:{\"hash\":\"%H\",\"author_name\":\"%an\",\"author_email\":\"%ae\",\"date\":\"%ad\",\"message\":\"%s\"}"
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120  # 2 minute timeout
+        )
+        
+        if result.returncode != 0:
+            print(f"  Warning: Failed to collect commit data: {result.stderr}")
+            return None
+        
+        if not result.stdout.strip():
+            print(f"  Warning: No commits found")
+            return []
+        
+        # Parse each line as JSON and collect into array
+        commits = []
+        for line in result.stdout.strip().split('\n'):
+            if line.strip():
+                try:
+                    commit = json.loads(line)
+                    commits.append(commit)
+                except json.JSONDecodeError as e:
+                    print(f"  Warning: Failed to parse commit line: {e}")
+                    continue
+        
+        print(f"  ✅ Collected {len(commits)} commits")
+        return commits
+        
+    except subprocess.TimeoutExpired:
+        print(f"  Warning: Commit collection timed out")
+        return None
+    except Exception as e:
+        print(f"  Error collecting commit data: {e}")
+        return None
 
 
 def analyze_with_scc(repo_path, scc_path):
@@ -415,6 +465,21 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
         
         analysis_results = {}
         
+        # Collect commit history data
+        commit_data = collect_commit_data(clone_path)
+        if commit_data is not None:
+            commit_results = {
+                "repository_url": repo_url,
+                "repository_name": repo_name,
+                "total_commits": len(commit_data),
+                "commits": commit_data
+            }
+            output_file = os.path.join(repo_results_dir, "commits.json")
+            if save_results(commit_results, output_file):
+                analysis_results['commits'] = True
+        else:
+            analysis_results['commits'] = False
+        
         # Run SCC analysis (tech stack)
         scc_data = analyze_with_scc(clone_path, scc_path)
         if scc_data:
@@ -531,6 +596,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Analysis Tools:
+  - Git Commit History: Extract all commit data - Always enabled
   - SCC: Source code counter (tech stack) - Always enabled
   - Lizard: Code complexity analysis - Enabled by default (use --no-lizard to disable)
   - Trivy: Vulnerability scanning - Disabled by default (use --trivy to enable)
@@ -553,6 +619,7 @@ Input file format (one repository URL per line):
 Output structure:
   results/
     {repo_name}/
+      commits.json (Git commit history)
       techStack.json (SCC results)
       complexity.json (Lizard results, if enabled)
       vulnerabilities.json (Trivy results, if enabled)
