@@ -1,0 +1,21 @@
+# Standalone Git Analyzer - Minimal Dependencies
+# Python 3.9+ required
+
+# Core dependencies - no service/web framework dependencies
+# No FastAPI, uvicorn, Redis, PostgreSQL, etc.
+
+# Analysis libraries (optional but recommended for advanced analysis)
+# These are lightweight and useful for data analysis
+# Comment out if you want a smaller package
+pandas>=1.5.0
+numpy>=1.24.0
+
+# Code complexity analysis - Python package (bundled)
+lizard>=1.17.0
+
+# PyInstaller for building executable
+pyinstaller>=5.13.0
+
+# Note: External tools (SCC, Trivy) are bundled as separate executables
+# Note: Git must be installed on the target system or bundled separately
+

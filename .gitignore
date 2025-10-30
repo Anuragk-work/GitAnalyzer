@@ -1,0 +1,46 @@
+# Build artifacts
+build/
+dist/
+*.spec.bak
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Results and logs
+results/*/
+!results/README.txt
+*.log
+
+# External tools (downloaded during package preparation)
+# Note: tools/ directory with all binaries and cache should be included in distribution
+!tools/
+!tools/**
+!tools/trivy-cache/
+
+# Temporary files
+*.tmp
+*.temp
+*.zip
+*.tar.gz
+

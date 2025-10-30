@@ -1,0 +1,70 @@
+name: Build Windows Executable
+
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_standalone.txt
+    
+    - name: Download SCC
+      run: |
+        mkdir tools
+        Invoke-WebRequest -Uri "https://github.com/boyter/scc/releases/download/v3.1.0/scc-3.1.0-x86_64-pc-windows.zip" -OutFile "scc.zip"
+        Expand-Archive -Path "scc.zip" -DestinationPath "tools"
+        Move-Item "tools\scc.exe" "tools\scc.exe" -Force
+      shell: pwsh
+    
+    - name: Download Trivy
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/aquasecurity/trivy/releases/download/v0.48.0/trivy_0.48.0_windows-64bit.zip" -OutFile "trivy.zip"
+        Expand-Archive -Path "trivy.zip" -DestinationPath "tools"
+      shell: pwsh
+    
+    - name: Build executable
+      run: |
+        pyinstaller analyzer.spec
+    
+    - name: Create distribution package
+      run: |
+        mkdir dist\git-analyzer
+        copy dist\analyzer.exe dist\git-analyzer\
+        mkdir dist\git-analyzer\tools
+        copy tools\scc.exe dist\git-analyzer\tools\
+        copy tools\trivy.exe dist\git-analyzer\tools\
+        mkdir dist\git-analyzer\results
+        copy README_STANDALONE.md dist\git-analyzer\README.txt
+      shell: cmd
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: git-analyzer-windows
+        path: dist/git-analyzer/
+    
+    - name: Create Release (if tag)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          dist/git-analyzer/**/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
