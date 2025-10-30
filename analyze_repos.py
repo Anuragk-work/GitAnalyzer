@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Script to analyze GitLab repositories using multiple analysis tools:
-- Git Commit History: Extract all commit data
+- Git Commit History: Extract commit data (last 2 years)
 - SCC: Source code counter (tech stack analysis)
 - Lizard: Code complexity analysis
 - Trivy: Vulnerability scanning
@@ -136,13 +136,14 @@ def clone_repository(repo_url, clone_dir):
 
 
 def collect_commit_data(repo_path):
-    """Collect git commit history data"""
-    print(f"  Collecting commit history...")
+    """Collect git commit history data (last 2 years only)"""
+    print(f"  Collecting commit history (last 2 years)...")
     try:
-        # Git log command to extract commit data
+        # Git log command to extract commit data (last 2 years only)
         cmd = [
             "git", "-C", repo_path,
             "log", "--all",
+            "--since=2.years",  # Only commits from last 2 years
             "--date=iso-strict",
             "--pretty=format:{\"hash\":\"%H\",\"author_name\":\"%an\",\"author_email\":\"%ae\",\"date\":\"%ad\",\"message\":\"%s\"}"
         ]
@@ -596,7 +597,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Analysis Tools:
-  - Git Commit History: Extract all commit data - Always enabled
+  - Git Commit History: Extract commit data (last 2 years) - Always enabled
   - SCC: Source code counter (tech stack) - Always enabled
   - Lizard: Code complexity analysis - Enabled by default (use --no-lizard to disable)
   - Trivy: Vulnerability scanning - Disabled by default (use --trivy to enable)
