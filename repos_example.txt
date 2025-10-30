@@ -1,0 +1,11 @@
+# GitLab Repository List
+# One repository URL per line
+# Lines starting with # are treated as comments
+# Empty lines are ignored
+
+# Example repositories:
+# https://gitlab.com/username/repository-1.git
+# https://gitlab.com/username/repository-2
+# https://gitlab.com/organization/project/repo-name.git
+
+
