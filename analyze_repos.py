@@ -184,7 +184,7 @@ def collect_commit_data(repo_path):
                     print(f"  Warning: Failed to parse commit line: {e}")
                     continue
         
-        print(f"  ✅ Collected {len(commits)} commits")
+        print(f"  Collected {len(commits)} commits")
         return commits
         
     except subprocess.TimeoutExpired:
@@ -507,14 +507,14 @@ def analyze_with_codemaat(repo_path, repo_name, repo_results_dir, jar_path='./to
                     
                     # Count entries (lines - 1 for header)
                     entries_count = len(result.stdout.strip().split('\n')) - 1
-                    print(f"  ✅ {analysis_type}: {entries_count} entries → {csv_filename}")
+                    print(f"  {analysis_type}: {entries_count} entries -> {csv_filename}")
                     successful_analyses += 1
                 else:
-                    print(f"  ⚠️  {analysis_type}: No data or analysis failed")
+                    print(f"  Warning: {analysis_type}: No data or analysis failed")
                     failed_analyses += 1
                     
             except Exception as e:
-                print(f"  ⚠️  {analysis_type}: {str(e)}")
+                print(f"  Warning: {analysis_type}: {str(e)}")
                 failed_analyses += 1
         
         # Return summary
@@ -546,7 +546,7 @@ def analyze_hotspots(repo_name, repo_results_dir, complexity_data, codemaat_enab
         revisions_file = os.path.join(repo_results_dir, f"{repo_name}_cm_revisions.csv")
         
         if not os.path.exists(revisions_file):
-            print(f"  ⚠️  Revisions file not found, skipping hotspot analysis")
+            print(f"  Warning: Revisions file not found, skipping hotspot analysis")
             return None
         
         revisions = {}
@@ -569,12 +569,12 @@ def analyze_hotspots(repo_name, repo_results_dir, complexity_data, codemaat_enab
                             continue
         
         if not revisions:
-            print(f"  ⚠️  No revision data found")
+            print(f"  Warning: No revision data found")
             return None
         
         # 2. Aggregate complexity by file from Lizard data
         if not complexity_data or not complexity_data.get('functions'):
-            print(f"  ⚠️  No complexity data available")
+            print(f"  Warning: No complexity data available")
             return None
         
         file_complexity = {}
@@ -659,7 +659,7 @@ def analyze_hotspots(repo_name, repo_results_dir, complexity_data, codemaat_enab
                 })
         
         if not hotspots:
-            print(f"  ⚠️  No hotspots identified")
+            print(f"  Warning: No hotspots identified")
             return None
         
         # Sort by hotspot score (highest first)
@@ -682,11 +682,11 @@ def analyze_hotspots(repo_name, repo_results_dir, complexity_data, codemaat_enab
         for h in hotspots:
             risk_counts[h['risk_level']] += 1
         
-        print(f"  ✅ Hotspots identified: {len(hotspots)} files")
-        print(f"     🔴 CRITICAL: {risk_counts['CRITICAL']}, "
-              f"🟠 HIGH: {risk_counts['HIGH']}, "
-              f"🟡 MEDIUM: {risk_counts['MEDIUM']}, "
-              f"🟢 LOW: {risk_counts['LOW']}")
+        print(f"  Hotspots identified: {len(hotspots)} files")
+        print(f"     CRITICAL: {risk_counts['CRITICAL']}, "
+              f"HIGH: {risk_counts['HIGH']}, "
+              f"MEDIUM: {risk_counts['MEDIUM']}, "
+              f"LOW: {risk_counts['LOW']}")
         print(f"     Saved to: {csv_filename}")
         
         return {
@@ -759,7 +759,7 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
         # Clone the repository
         clone_success, clone_error = clone_repository(repo_url, clone_path)
         if not clone_success:
-            print(f"  ❌ Failed to clone repository: {repo_url}")
+            print(f"  Failed to clone repository: {repo_url}")
             print(f"  Error: {clone_error}")
             # Log to access_error.txt
             log_access_error(repo_url, clone_error, results_dir)
@@ -796,7 +796,7 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
             if save_results(scc_results, output_file):
                 analysis_results['techstack'] = True
         else:
-            print(f"  ⚠️  SCC analysis failed")
+            print(f"  Warning: SCC analysis failed")
             analysis_results['techstack'] = False
         
         # Run Lizard analysis (code complexity)
@@ -839,7 +839,7 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
         if run_codemaat:
             codemaat_summary = analyze_with_codemaat(clone_path, repo_name, repo_results_dir, codemaat_jar_path)
             if codemaat_summary and codemaat_summary['successful'] > 0:
-                print(f"  📊 CodeMaat: {codemaat_summary['successful']}/{codemaat_summary['total']} analyses completed")
+                print(f"  CodeMaat: {codemaat_summary['successful']}/{codemaat_summary['total']} analyses completed")
                 analysis_results['codemaat'] = True
                 codemaat_successful = True
             else:
@@ -855,9 +855,9 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
                 analysis_results['hotspots'] = False
         
         # Print summary
-        print(f"\n  📊 Analysis Summary:")
+        print(f"\n  Analysis Summary:")
         for analysis_type, success in analysis_results.items():
-            status = "✅" if success else "❌"
+            status = "[OK]" if success else "[FAIL]"
             print(f"     {status} {analysis_type.capitalize()}")
         
         # Return True if at least one analysis succeeded
@@ -1066,11 +1066,11 @@ Output structure:
     
     # Display configuration
     print(f"\nAnalysis Configuration:")
-    print(f"  Git Commits: ✅ Always enabled (last 2 years)")
-    print(f"  SCC (TechStack): ✅ Always enabled")
-    print(f"  Lizard (Complexity): {'✅ Enabled' if run_lizard else '❌ Disabled'}")
-    print(f"  Trivy (Vulnerabilities): {'✅ Enabled' if run_trivy else '❌ Disabled'}")
-    print(f"  CodeMaat (Evolution): {'✅ Enabled (last 2 years)' if run_codemaat else '❌ Disabled'}")
+    print(f"  Git Commits: Always enabled (last 2 years)")
+    print(f"  SCC (TechStack): Always enabled")
+    print(f"  Lizard (Complexity): {'Enabled' if run_lizard else 'Disabled'}")
+    print(f"  Trivy (Vulnerabilities): {'Enabled' if run_trivy else 'Disabled'}")
+    print(f"  CodeMaat (Evolution): {'Enabled (last 2 years)' if run_codemaat else 'Disabled'}")
     print()
     
     try:
