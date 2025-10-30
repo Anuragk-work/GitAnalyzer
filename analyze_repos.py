@@ -408,8 +408,8 @@ def analyze_with_trivy(repo_path, trivy_path='trivy', cache_dir=None):
 
 
 def analyze_with_codemaat(repo_path, jar_path='./tools/cm.jar'):
-    """Run CodeMaat evolution analysis (last 2 years)"""
-    print(f"  Running CodeMaat evolution analysis (last 2 years)...")
+    """Run CodeMaat evolution analysis (last 2 years) - All 15 analysis types"""
+    print(f"  Running CodeMaat evolution analysis (15 types, last 2 years)...")
     
     try:
         # Check if CodeMaat JAR exists
@@ -450,13 +450,23 @@ def analyze_with_codemaat(repo_path, jar_path='./tools/cm.jar'):
         
         git_log = log_result.stdout
         
-        # Run key CodeMaat analyses
+        # Run all available CodeMaat analyses
         analyses_to_run = [
-            "revisions",      # Code evolution
-            "authors",        # Author patterns
-            "entity-churn",   # Frequently changing areas
-            "coupling",       # File dependencies
-            "soc"            # Sum of coupling
+            "revisions",              # Code evolution - how files change over time
+            "authors",                # Author analysis - contributor patterns
+            "entity-churn",           # Entity churn - frequently changing areas
+            "coupling",               # Code coupling - file dependencies
+            "communication",          # Communication patterns between authors
+            "main-dev",               # Main developers for each file
+            "entity-effort",          # Development effort distribution
+            "abs-churn",              # Absolute churn metrics
+            "age",                    # Code age - stability analysis
+            "author-churn",           # Author churn - individual developer contributions
+            "entity-ownership",       # Entity ownership - detailed ownership per file
+            "fragmentation",          # Code fragmentation - scattered changes analysis
+            "soc",                    # Sum of coupling - total coupling per entity
+            "main-dev-by-revs",       # Main developer by revision count
+            "refactoring-main-dev"    # Refactoring expertise mapping
         ]
         
         all_results = {}
