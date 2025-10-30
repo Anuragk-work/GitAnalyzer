@@ -38,6 +38,15 @@ SCC_PATH = 'scc'  # Default: use 'scc' from system PATH
 #   - Relative path: './tools/trivy'
 #   - Windows: 'C:\\tools\\trivy.exe' or 'trivy.exe'
 TRIVY_PATH = 'trivy'  # Default: use 'trivy' from system PATH
+
+# Path to Trivy cache directory for offline usage (optional)
+# If set, Trivy will use this cache and skip database updates (offline mode)
+# Set to None to use online mode (downloads latest vulnerability database)
+# Examples:
+#   - Relative path: './tools/trivy-cache'
+#   - Absolute path: '/path/to/trivy-cache'
+#   - Windows: 'C:\\tools\\trivy-cache'
+TRIVY_CACHE_DIR = './tools/trivy-cache'  # Default: use local cache in tools directory
 # ============================================================================
 
 
@@ -214,7 +223,7 @@ def analyze_with_lizard(repo_path):
         return None
 
 
-def analyze_with_trivy(repo_path, trivy_path='trivy'):
+def analyze_with_trivy(repo_path, trivy_path='trivy', cache_dir=None):
     """Run Trivy vulnerability scanning"""
     print(f"  Running Trivy vulnerability scan...")
     try:
@@ -230,16 +239,28 @@ def analyze_with_trivy(repo_path, trivy_path='trivy'):
                 print(f"  Skipping vulnerability scan.")
                 return None
         
-        # Run trivy filesystem scan
+        # Build trivy filesystem scan command
         cmd = [
             trivy_cmd, "fs",
             "--scanners", "vuln,secret,misconfig",
             "--format", "json",
             "--exit-code", "0",
             "--timeout", "10m",
-            "--quiet",
-            repo_path
+            "--quiet"
         ]
+        
+        # Add offline cache support if cache directory is specified
+        if cache_dir:
+            if os.path.exists(cache_dir):
+                cmd.extend(["--cache-dir", cache_dir])
+                cmd.append("--skip-db-update")  # Don't try to update DB in offline mode
+                print(f"  Using offline Trivy cache: {cache_dir}")
+            else:
+                print(f"  Warning: Trivy cache directory not found: {cache_dir}")
+                print(f"  Continuing without offline cache (will attempt online DB update)")
+        
+        # Add target path
+        cmd.append(repo_path)
         
         result = subprocess.run(
             cmd,
@@ -368,7 +389,7 @@ def log_access_error(repo_url, error_message, results_dir):
         return False
 
 
-def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_path='trivy', run_lizard=True, run_trivy=False):
+def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_path='trivy', trivy_cache_dir=None, run_lizard=True, run_trivy=False):
     """Process a single repository: clone, analyze, and save results"""
     repo_name = extract_repo_name(repo_url)
     print(f"\nProcessing: {repo_name}")
@@ -426,7 +447,7 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
         
         # Run Trivy analysis (vulnerabilities)
         if run_trivy:
-            trivy_data = analyze_with_trivy(clone_path, trivy_path)
+            trivy_data = analyze_with_trivy(clone_path, trivy_path, trivy_cache_dir)
             if trivy_data:
                 trivy_results = {
                     "repository_url": repo_url,
@@ -517,6 +538,7 @@ Examples:
   python3 analyze_repos.py repos.txt --no-lizard --trivy
   python3 analyze_repos.py repos.txt --scc-path /usr/local/bin/scc
   python3 analyze_repos.py repos.txt --trivy --trivy-path ./tools/trivy
+  python3 analyze_repos.py repos.txt --trivy --trivy-cache-dir ./tools/trivy-cache
   
 Input file format (one repository URL per line):
   https://gitlab.com/user/repo1.git
@@ -556,6 +578,12 @@ Output files per repository:
     )
     
     parser.add_argument(
+        '--trivy-cache-dir',
+        default=TRIVY_CACHE_DIR,
+        help=f'Path to Trivy cache directory for offline mode (default: {TRIVY_CACHE_DIR}). Set to empty string to disable offline cache.'
+    )
+    
+    parser.add_argument(
         '--no-lizard',
         action='store_true',
         help='Disable Lizard code complexity analysis (enabled by default)'
@@ -572,6 +600,7 @@ Output files per repository:
     # Use the tool paths from arguments or configuration
     scc_path = args.scc_path
     trivy_path = args.trivy_path
+    trivy_cache_dir = args.trivy_cache_dir if args.trivy_cache_dir else None
     
     # Check if scc is installed
     print(f"Using SCC from: {scc_path}")
@@ -621,7 +650,7 @@ Output files per repository:
         failed = 0
         
         for repo_url in repositories:
-            if process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_path,
+            if process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_path, trivy_cache_dir,
                                 run_lizard=run_lizard, run_trivy=run_trivy):
                 successful += 1
             else:
