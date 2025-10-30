@@ -407,8 +407,14 @@ def analyze_with_trivy(repo_path, trivy_path='trivy', cache_dir=None):
         return None
 
 
-def analyze_with_codemaat(repo_path, jar_path='./tools/cm.jar'):
-    """Run CodeMaat evolution analysis (last 2 years) - All 15 analysis types"""
+def analyze_with_codemaat(repo_path, repo_name, repo_results_dir, jar_path='./tools/cm.jar'):
+    """Run CodeMaat evolution analysis (last 2 years) - All 15 analysis types
+    
+    Saves each analysis as a separate CSV file:
+    - {repo}_cm_revisions.csv
+    - {repo}_cm_authors.csv
+    - etc.
+    """
     print(f"  Running CodeMaat evolution analysis (15 types, last 2 years)...")
     
     try:
@@ -469,7 +475,8 @@ def analyze_with_codemaat(repo_path, jar_path='./tools/cm.jar'):
             "refactoring-main-dev"    # Refactoring expertise mapping
         ]
         
-        all_results = {}
+        successful_analyses = 0
+        failed_analyses = 0
         
         for analysis_type in analyses_to_run:
             try:
@@ -489,83 +496,35 @@ def analyze_with_codemaat(repo_path, jar_path='./tools/cm.jar'):
                 )
                 
                 if result.returncode == 0 and result.stdout.strip():
-                    # Parse CSV output
-                    parsed_data = parse_codemaat_csv(result.stdout)
-                    all_results[analysis_type] = {
-                        "success": True,
-                        "entries_count": len(parsed_data),
-                        "data": parsed_data
-                    }
-                    print(f"  ✅ {analysis_type}: {len(parsed_data)} entries")
+                    # Save CSV output directly to file
+                    csv_filename = f"{repo_name}_cm_{analysis_type.replace('-', '_')}.csv"
+                    csv_path = os.path.join(repo_results_dir, csv_filename)
+                    
+                    with open(csv_path, 'w', encoding='utf-8') as f:
+                        f.write(result.stdout)
+                    
+                    # Count entries (lines - 1 for header)
+                    entries_count = len(result.stdout.strip().split('\n')) - 1
+                    print(f"  ✅ {analysis_type}: {entries_count} entries → {csv_filename}")
+                    successful_analyses += 1
                 else:
-                    all_results[analysis_type] = {
-                        "success": False,
-                        "error": "No data or analysis failed"
-                    }
+                    print(f"  ⚠️  {analysis_type}: No data or analysis failed")
+                    failed_analyses += 1
                     
             except Exception as e:
-                all_results[analysis_type] = {
-                    "success": False,
-                    "error": str(e)
-                }
+                print(f"  ⚠️  {analysis_type}: {str(e)}")
+                failed_analyses += 1
         
-        return all_results
+        # Return summary
+        return {
+            "successful": successful_analyses,
+            "failed": failed_analyses,
+            "total": len(analyses_to_run)
+        }
         
     except Exception as e:
         print(f"  Error running CodeMaat analysis: {e}")
         return None
-
-
-def parse_codemaat_csv(csv_output):
-    """Parse CodeMaat CSV output"""
-    try:
-        lines = csv_output.strip().split('\n')
-        if len(lines) < 2:
-            return []
-        
-        # Get headers
-        headers = [h.strip() for h in lines[0].split(',')]
-        
-        # Parse data rows
-        results = []
-        for line in lines[1:]:
-            if line.strip():
-                # Split by comma, handle quoted values
-                values = []
-                in_quotes = False
-                current_value = ""
-                
-                for char in line:
-                    if char == '"':
-                        in_quotes = not in_quotes
-                    elif char == ',' and not in_quotes:
-                        values.append(current_value.strip())
-                        current_value = ""
-                    else:
-                        current_value += char
-                
-                # Add last value
-                if current_value:
-                    values.append(current_value.strip())
-                
-                # Create row dict
-                if len(values) == len(headers):
-                    row_dict = {}
-                    for header, value in zip(headers, values):
-                        # Try to convert to number
-                        try:
-                            if '.' in value:
-                                row_dict[header] = float(value)
-                            else:
-                                row_dict[header] = int(value)
-                        except ValueError:
-                            row_dict[header] = value
-                    results.append(row_dict)
-        
-        return results
-        
-    except Exception as e:
-        return []
 
 
 def save_results(data, output_path):
@@ -703,19 +662,10 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
         
         # Run CodeMaat analysis (code evolution)
         if run_codemaat:
-            codemaat_data = analyze_with_codemaat(clone_path, codemaat_jar_path)
-            if codemaat_data:
-                codemaat_results = {
-                    "repository_url": repo_url,
-                    "repository_name": repo_name,
-                    "analysis_type": "evolution",
-                    "tool": "codemaat",
-                    "time_period": "last_2_years",
-                    "analyses": codemaat_data
-                }
-                output_file = os.path.join(repo_results_dir, "evolution.json")
-                if save_results(codemaat_results, output_file):
-                    analysis_results['codemaat'] = True
+            codemaat_summary = analyze_with_codemaat(clone_path, repo_name, repo_results_dir, codemaat_jar_path)
+            if codemaat_summary and codemaat_summary['successful'] > 0:
+                print(f"  📊 CodeMaat: {codemaat_summary['successful']}/{codemaat_summary['total']} analyses completed")
+                analysis_results['codemaat'] = True
             else:
                 analysis_results['codemaat'] = False
         
@@ -812,7 +762,21 @@ Output structure:
       techStack.json (SCC results)
       complexity.json (Lizard results, if enabled)
       vulnerabilities.json (Trivy results, if enabled)
-      evolution.json (CodeMaat results - last 2 years, if enabled)
+      {repo_name}_cm_revisions.csv (CodeMaat - if enabled)
+      {repo_name}_cm_authors.csv
+      {repo_name}_cm_entity_churn.csv
+      {repo_name}_cm_coupling.csv
+      {repo_name}_cm_communication.csv
+      {repo_name}_cm_main_dev.csv
+      {repo_name}_cm_entity_effort.csv
+      {repo_name}_cm_abs_churn.csv
+      {repo_name}_cm_age.csv
+      {repo_name}_cm_author_churn.csv
+      {repo_name}_cm_entity_ownership.csv
+      {repo_name}_cm_fragmentation.csv
+      {repo_name}_cm_soc.csv
+      {repo_name}_cm_main_dev_by_revs.csv
+      {repo_name}_cm_refactoring_main_dev.csv
     access_error.txt (Failed repositories)
         """
     )
