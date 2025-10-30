@@ -5,6 +5,7 @@ Script to analyze GitLab repositories using multiple analysis tools:
 - SCC: Source code counter (tech stack analysis)
 - Lizard: Code complexity analysis
 - Trivy: Vulnerability scanning
+- CodeMaat: Code evolution analysis (last 2 years)
 
 Reads a list of repository URLs from a text file, clones each repository,
 runs analyses, and stores results in JSON format.
@@ -48,6 +49,13 @@ TRIVY_PATH = 'trivy'  # Default: use 'trivy' from system PATH
 #   - Absolute path: '/path/to/trivy-cache'
 #   - Windows: 'C:\\tools\\trivy-cache'
 TRIVY_CACHE_DIR = './tools/trivy-cache'  # Default: use local cache in tools directory
+
+# Path to CodeMaat JAR file - for code evolution analysis
+# Examples:
+#   - Relative path: './tools/cm.jar'
+#   - Absolute path: '/usr/local/bin/cm.jar'
+#   - Windows: 'C:\\tools\\cm.jar'
+CODEMAAT_JAR_PATH = './tools/cm.jar'  # Default: use cm.jar in tools directory
 # ============================================================================
 
 
@@ -399,6 +407,157 @@ def analyze_with_trivy(repo_path, trivy_path='trivy', cache_dir=None):
         return None
 
 
+def analyze_with_codemaat(repo_path, jar_path='./tools/cm.jar'):
+    """Run CodeMaat evolution analysis (last 2 years)"""
+    print(f"  Running CodeMaat evolution analysis (last 2 years)...")
+    
+    try:
+        # Check if CodeMaat JAR exists
+        if not os.path.isfile(jar_path):
+            print(f"  Warning: CodeMaat JAR not found at: {jar_path}")
+            print(f"  Skipping CodeMaat analysis.")
+            return None
+        
+        # Check if Java is available
+        try:
+            subprocess.run(["java", "-version"], capture_output=True, timeout=5)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            print(f"  Warning: Java not found. CodeMaat requires Java.")
+            return None
+        
+        # Extract git log in CodeMaat format (last 2 years)
+        print(f"  Extracting git log for CodeMaat...")
+        log_cmd = [
+            "git", "-C", repo_path,
+            "log", "--all",
+            "--since=2.years",  # Last 2 years only
+            "--numstat",
+            "--date=short",
+            "--pretty=format:--%h--%ad--%aN",
+            "--no-renames"
+        ]
+        
+        log_result = subprocess.run(
+            log_cmd,
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        
+        if log_result.returncode != 0 or not log_result.stdout.strip():
+            print(f"  Warning: Failed to extract git log for CodeMaat")
+            return None
+        
+        git_log = log_result.stdout
+        
+        # Run key CodeMaat analyses
+        analyses_to_run = [
+            "revisions",      # Code evolution
+            "authors",        # Author patterns
+            "entity-churn",   # Frequently changing areas
+            "coupling",       # File dependencies
+            "soc"            # Sum of coupling
+        ]
+        
+        all_results = {}
+        
+        for analysis_type in analyses_to_run:
+            try:
+                # Run CodeMaat analysis
+                cmd = [
+                    "java", "-jar", jar_path,
+                    "-c", "git2",
+                    "-a", analysis_type
+                ]
+                
+                result = subprocess.run(
+                    cmd,
+                    input=git_log,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    # Parse CSV output
+                    parsed_data = parse_codemaat_csv(result.stdout)
+                    all_results[analysis_type] = {
+                        "success": True,
+                        "entries_count": len(parsed_data),
+                        "data": parsed_data
+                    }
+                    print(f"  ✅ {analysis_type}: {len(parsed_data)} entries")
+                else:
+                    all_results[analysis_type] = {
+                        "success": False,
+                        "error": "No data or analysis failed"
+                    }
+                    
+            except Exception as e:
+                all_results[analysis_type] = {
+                    "success": False,
+                    "error": str(e)
+                }
+        
+        return all_results
+        
+    except Exception as e:
+        print(f"  Error running CodeMaat analysis: {e}")
+        return None
+
+
+def parse_codemaat_csv(csv_output):
+    """Parse CodeMaat CSV output"""
+    try:
+        lines = csv_output.strip().split('\n')
+        if len(lines) < 2:
+            return []
+        
+        # Get headers
+        headers = [h.strip() for h in lines[0].split(',')]
+        
+        # Parse data rows
+        results = []
+        for line in lines[1:]:
+            if line.strip():
+                # Split by comma, handle quoted values
+                values = []
+                in_quotes = False
+                current_value = ""
+                
+                for char in line:
+                    if char == '"':
+                        in_quotes = not in_quotes
+                    elif char == ',' and not in_quotes:
+                        values.append(current_value.strip())
+                        current_value = ""
+                    else:
+                        current_value += char
+                
+                # Add last value
+                if current_value:
+                    values.append(current_value.strip())
+                
+                # Create row dict
+                if len(values) == len(headers):
+                    row_dict = {}
+                    for header, value in zip(headers, values):
+                        # Try to convert to number
+                        try:
+                            if '.' in value:
+                                row_dict[header] = float(value)
+                            else:
+                                row_dict[header] = int(value)
+                        except ValueError:
+                            row_dict[header] = value
+                    results.append(row_dict)
+        
+        return results
+        
+    except Exception as e:
+        return []
+
+
 def save_results(data, output_path):
     """Save analysis results to JSON file"""
     try:
@@ -440,7 +599,7 @@ def log_access_error(repo_url, error_message, results_dir):
         return False
 
 
-def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_path='trivy', trivy_cache_dir=None, run_lizard=True, run_trivy=False):
+def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_path='trivy', trivy_cache_dir=None, codemaat_jar_path=None, run_lizard=True, run_trivy=False, run_codemaat=False):
     """Process a single repository: clone, analyze, and save results"""
     repo_name = extract_repo_name(repo_url)
     print(f"\nProcessing: {repo_name}")
@@ -532,6 +691,24 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
             else:
                 analysis_results['vulnerabilities'] = False
         
+        # Run CodeMaat analysis (code evolution)
+        if run_codemaat:
+            codemaat_data = analyze_with_codemaat(clone_path, codemaat_jar_path)
+            if codemaat_data:
+                codemaat_results = {
+                    "repository_url": repo_url,
+                    "repository_name": repo_name,
+                    "analysis_type": "evolution",
+                    "tool": "codemaat",
+                    "time_period": "last_2_years",
+                    "analyses": codemaat_data
+                }
+                output_file = os.path.join(repo_results_dir, "evolution.json")
+                if save_results(codemaat_results, output_file):
+                    analysis_results['codemaat'] = True
+            else:
+                analysis_results['codemaat'] = False
+        
         # Print summary
         print(f"\n  📊 Analysis Summary:")
         for analysis_type, success in analysis_results.items():
@@ -601,15 +778,16 @@ Analysis Tools:
   - SCC: Source code counter (tech stack) - Always enabled
   - Lizard: Code complexity analysis - Enabled by default (use --no-lizard to disable)
   - Trivy: Vulnerability scanning - Disabled by default (use --trivy to enable)
+  - CodeMaat: Code evolution analysis (last 2 years) - Disabled by default (use --codemaat to enable)
 
 Examples:
   python3 analyze_repos.py repos.txt
   python3 analyze_repos.py repos.txt -o /path/to/results
-  python3 analyze_repos.py repos.txt --trivy
+  python3 analyze_repos.py repos.txt --trivy --codemaat
   python3 analyze_repos.py repos.txt --no-lizard --trivy
   python3 analyze_repos.py repos.txt --scc-path /usr/local/bin/scc
   python3 analyze_repos.py repos.txt --trivy --trivy-path ./tools/trivy
-  python3 analyze_repos.py repos.txt --trivy --trivy-cache-dir ./tools/trivy-cache
+  python3 analyze_repos.py repos.txt --codemaat --codemaat-jar-path ./tools/cm.jar
   
 Input file format (one repository URL per line):
   https://gitlab.com/user/repo1.git
@@ -620,10 +798,11 @@ Input file format (one repository URL per line):
 Output structure:
   results/
     {repo_name}/
-      commits.json (Git commit history)
+      commits.json (Git commit history - last 2 years)
       techStack.json (SCC results)
       complexity.json (Lizard results, if enabled)
       vulnerabilities.json (Trivy results, if enabled)
+      evolution.json (CodeMaat results - last 2 years, if enabled)
     access_error.txt (Failed repositories)
         """
     )
@@ -669,12 +848,25 @@ Output structure:
         help='Enable Trivy vulnerability scanning (disabled by default)'
     )
     
+    parser.add_argument(
+        '--codemaat',
+        action='store_true',
+        help='Enable CodeMaat evolution analysis (disabled by default)'
+    )
+    
+    parser.add_argument(
+        '--codemaat-jar-path',
+        default=CODEMAAT_JAR_PATH,
+        help=f'Path to CodeMaat JAR file (default: {CODEMAAT_JAR_PATH})'
+    )
+    
     args = parser.parse_args()
     
     # Use the tool paths from arguments or configuration
     scc_path = args.scc_path
     trivy_path = args.trivy_path
     trivy_cache_dir = args.trivy_cache_dir if args.trivy_cache_dir else None
+    codemaat_jar_path = args.codemaat_jar_path
     
     # Check if scc is installed
     print(f"Using SCC from: {scc_path}")
@@ -710,12 +902,15 @@ Output structure:
     # Determine which analyses to run
     run_lizard = not args.no_lizard
     run_trivy = args.trivy
+    run_codemaat = args.codemaat
     
     # Display configuration
     print(f"\nAnalysis Configuration:")
+    print(f"  Git Commits: ✅ Always enabled (last 2 years)")
     print(f"  SCC (TechStack): ✅ Always enabled")
     print(f"  Lizard (Complexity): {'✅ Enabled' if run_lizard else '❌ Disabled'}")
     print(f"  Trivy (Vulnerabilities): {'✅ Enabled' if run_trivy else '❌ Disabled'}")
+    print(f"  CodeMaat (Evolution): {'✅ Enabled (last 2 years)' if run_codemaat else '❌ Disabled'}")
     print()
     
     try:
@@ -724,8 +919,8 @@ Output structure:
         failed = 0
         
         for repo_url in repositories:
-            if process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_path, trivy_cache_dir,
-                                run_lizard=run_lizard, run_trivy=run_trivy):
+            if process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_path, trivy_cache_dir, codemaat_jar_path,
+                                run_lizard=run_lizard, run_trivy=run_trivy, run_codemaat=run_codemaat):
                 successful += 1
             else:
                 failed += 1
