@@ -7,6 +7,7 @@ Script to analyze GitLab repositories using multiple analysis tools:
 - Trivy: Vulnerability scanning
 - CodeMaat: Code evolution analysis (last 2 years)
 - Hotspot Analysis: Identify high-risk code (high complexity + high change frequency)
+- Developer Ranking: Weighted contributor ranking (automatic if CodeMaat enabled)
 
 Reads a list of repository URLs from a text file, clones each repository,
 runs analyses, and stores results in JSON/CSV format.
@@ -23,6 +24,7 @@ import argparse
 import time
 from datetime import datetime
 from io import StringIO
+from pathlib import Path
 
 # ============================================================================
 # CONFIGURATION
@@ -897,6 +899,78 @@ def run_geographic_analysis(commits_file, output_dir):
         return False
 
 
+def run_developer_ranking(repo_results_dir, repo_name):
+    """
+    Run developer ranking analysis on the repository results.
+    Calls calculate_developer_ranking.py as a subprocess.
+    
+    Requires:
+    - commits.json
+    - *_hotspots.csv
+    - CodeMaat analysis files
+    """
+    try:
+        # Get the path to calculate_developer_ranking.py script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        ranking_script = os.path.join(script_dir, 'calculate_developer_ranking.py')
+        
+        # Check if script exists
+        if not os.path.exists(ranking_script):
+            print(f"  Warning: Developer ranking script not found: {ranking_script}")
+            return False
+        
+        # Check if required files exist
+        required_files = [
+            os.path.join(repo_results_dir, 'commits.json'),
+            os.path.join(repo_results_dir, f'{repo_name}_hotspots.csv'),
+            os.path.join(repo_results_dir, f'{repo_name}_code-analysis_entity_ownership.csv'),
+            os.path.join(repo_results_dir, f'{repo_name}_code-analysis_main_dev.csv')
+        ]
+        
+        missing_files = [f for f in required_files if not os.path.exists(f)]
+        if missing_files:
+            print(f"  Skipping developer ranking: Missing required files")
+            return False
+        
+        # Determine Python command
+        python_cmd = sys.executable if sys.executable else "python"
+        
+        # Prepare output paths
+        json_output = os.path.join(repo_results_dir, 'developer_rankings.json')
+        csv_output = os.path.join(repo_results_dir, 'developer_rankings.csv')
+        
+        # Run the developer ranking script
+        result = subprocess.run(
+            [
+                python_cmd, ranking_script,
+                repo_results_dir,
+                '--output-json', json_output,
+                '--output-csv', csv_output,
+                '--top', '50'  # Show top 50 in console
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120  # 2 minute timeout
+        )
+        
+        if result.returncode == 0:
+            print(f"  Developer ranking analysis completed")
+            print(f"     Rankings saved to:")
+            print(f"       - {os.path.basename(json_output)}")
+            print(f"       - {os.path.basename(csv_output)}")
+            return True
+        else:
+            print(f"  Warning: Developer ranking failed: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print(f"  Warning: Developer ranking timed out")
+        return False
+    except Exception as e:
+        print(f"  Warning: Could not run developer ranking: {e}")
+        return False
+
+
 def save_results(data, output_path):
     """Save analysis results to JSON file"""
     try:
@@ -1046,12 +1120,21 @@ def process_repository(repo_url, results_dir, repos_base_dir, scc_path, trivy_pa
         
         # Run Hotspot analysis (combines Lizard + CodeMaat)
         # Automatically runs if both Lizard and CodeMaat data are available
+        hotspot_successful = False
         if run_lizard and codemaat_successful and lizard_data:
             hotspot_summary = analyze_hotspots(repo_name, repo_results_dir, lizard_data, True)
             if hotspot_summary:
                 analysis_results['hotspots'] = True
+                hotspot_successful = True
             else:
                 analysis_results['hotspots'] = False
+        
+        # Run Developer Ranking analysis (automatic if CodeMaat + hotspots are available)
+        if codemaat_successful and hotspot_successful:
+            if run_developer_ranking(repo_results_dir, repo_name):
+                analysis_results['developer_ranking'] = True
+            else:
+                analysis_results['developer_ranking'] = False
         
         # Print summary
         print(f"\n  Analysis Summary:")
@@ -1098,6 +1181,7 @@ Analysis Tools:
   - Lizard: Code complexity analysis - Enabled by default (use --no-lizard to disable)
   - Trivy: Vulnerability scanning - Disabled by default (use --trivy to enable)
   - CodeMaat: Code evolution analysis (last 2 years) - Disabled by default (use --codemaat to enable)
+  - Developer Ranking: Weighted contributor analysis - Automatic when CodeMaat + hotspots enabled
 
 Examples:
   python3 analyze_repos.py repos.txt
@@ -1141,6 +1225,8 @@ Output structure:
       {repo_name}_code-analysis_main_dev_by_revs.csv
       {repo_name}_code-analysis_refactoring_main_dev.csv
       {repo_name}_hotspots.csv (Code hotspots - if Lizard + CodeMaat enabled)
+      developer_rankings.json (Developer rankings - automatic if CodeMaat + hotspots enabled)
+      developer_rankings.csv (Developer rankings CSV - automatic if CodeMaat + hotspots enabled)
     access_error.txt (Failed repositories)
 
 Note: Repositories are cloned to ./repositories and kept for future runs.
@@ -1250,10 +1336,15 @@ Note: Repositories are cloned to ./repositories and kept for future runs.
     # Display configuration
     print(f"\nAnalysis Configuration:")
     print(f"  Git Commits: Always enabled (last 2 years)")
+    print(f"  Geographic Distribution: Always enabled")
     print(f"  SCC (TechStack): Always enabled")
     print(f"  Lizard (Complexity): {'Enabled' if run_lizard else 'Disabled'}")
     print(f"  Trivy (Vulnerabilities): {'Enabled' if run_trivy else 'Disabled'}")
     print(f"  CodeMaat (Evolution): {'Enabled (last 2 years)' if run_codemaat else 'Disabled'}")
+    if run_codemaat and run_lizard:
+        print(f"  Developer Ranking: Will run automatically (CodeMaat + Lizard enabled)")
+    else:
+        print(f"  Developer Ranking: Disabled (requires CodeMaat + Lizard)")
     print()
     
     # Process each repository
