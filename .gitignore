@@ -32,6 +32,9 @@ results/*/
 !results/README.txt
 *.log
 
+# Cloned repositories
+repositories/
+
 # External tools (downloaded during package preparation)
 # Note: tools/ directory with all binaries and cache should be included in distribution
 !tools/

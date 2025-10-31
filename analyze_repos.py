@@ -106,10 +106,78 @@ def check_scc_installed(scc_path):
         return False
 
 
-def clone_repository(repo_url, clone_dir):
-    """Clone a GitLab repository with Windows compatibility"""
+def clone_or_update_repository(repo_url, clone_dir):
+    """Clone a repository or update it if it already exists"""
+    
+    # Check if repository already exists
+    if os.path.exists(clone_dir) and os.path.exists(os.path.join(clone_dir, '.git')):
+        print(f"  Repository already exists, checking for updates...")
+        try:
+            # Fetch latest changes
+            fetch_cmd = ["git", "-C", clone_dir, "fetch", "--all"]
+            fetch_result = subprocess.run(
+                fetch_cmd,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+            
+            if fetch_result.returncode != 0:
+                print(f"  Warning: Failed to fetch updates: {fetch_result.stderr}")
+            
+            # Get current branch
+            branch_cmd = ["git", "-C", clone_dir, "rev-parse", "--abbrev-ref", "HEAD"]
+            branch_result = subprocess.run(
+                branch_cmd,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if branch_result.returncode == 0:
+                current_branch = branch_result.stdout.strip()
+                
+                # Pull latest changes
+                pull_cmd = ["git", "-C", clone_dir, "pull", "origin", current_branch]
+                pull_result = subprocess.run(
+                    pull_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                
+                if pull_result.returncode == 0:
+                    if "Already up to date" in pull_result.stdout:
+                        print(f"  Repository is already up to date")
+                    else:
+                        print(f"  Repository updated successfully")
+                    return True, None
+                else:
+                    print(f"  Warning: Failed to pull updates: {pull_result.stderr}")
+                    print(f"  Continuing with existing repository state...")
+                    return True, None
+            else:
+                print(f"  Warning: Could not determine current branch")
+                print(f"  Continuing with existing repository state...")
+                return True, None
+                
+        except subprocess.TimeoutExpired:
+            print(f"  Warning: Update operation timed out")
+            print(f"  Continuing with existing repository state...")
+            return True, None
+        except Exception as e:
+            print(f"  Warning: Failed to update repository: {e}")
+            print(f"  Continuing with existing repository state...")
+            return True, None
+    
+    # Repository doesn't exist, clone it
     print(f"  Cloning repository: {repo_url}")
     try:
+        # Create parent directory if it doesn't exist
+        parent_dir = os.path.dirname(clone_dir)
+        if parent_dir and not os.path.exists(parent_dir):
+            os.makedirs(parent_dir, exist_ok=True)
+        
         # Add Windows-specific configurations to handle long paths and checkout issues
         git_config = [
             "-c", "core.longpaths=true",           # Handle long file paths on Windows
@@ -132,6 +200,7 @@ def clone_repository(repo_url, clone_dir):
             check=True,
             timeout=600  # 10 minute timeout for full clone
         )
+        print(f"  Repository cloned successfully")
         return True, None
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr if e.stderr else str(e)
@@ -760,8 +829,8 @@ def log_access_error(repo_url, error_message, results_dir):
         return False
 
 
-def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_path='trivy', trivy_cache_dir=None, codemaat_jar_path=None, run_lizard=True, run_trivy=False, run_codemaat=False):
-    """Process a single repository: clone, analyze, and save results"""
+def process_repository(repo_url, results_dir, repos_base_dir, scc_path, trivy_path='trivy', trivy_cache_dir=None, codemaat_jar_path=None, run_lizard=True, run_trivy=False, run_codemaat=False):
+    """Process a single repository: clone/update, analyze, and save results"""
     repo_name = extract_repo_name(repo_url)
     print(f"\nProcessing: {repo_name}")
     print(f"="*60)
@@ -770,13 +839,12 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
     repo_results_dir = os.path.join(results_dir, repo_name)
     os.makedirs(repo_results_dir, exist_ok=True)
     
-    # Create a temporary directory for this specific repo
-    temp_dir = tempfile.mkdtemp(dir=temp_base_dir, prefix=f"{repo_name}_")
-    clone_path = os.path.join(temp_dir, repo_name)
+    # Use persistent repository directory instead of temporary
+    clone_path = os.path.join(repos_base_dir, repo_name)
     
     try:
-        # Clone the repository
-        clone_success, clone_error = clone_repository(repo_url, clone_path)
+        # Clone or update the repository
+        clone_success, clone_error = clone_or_update_repository(repo_url, clone_path)
         if not clone_success:
             print(f"  Failed to clone repository: {repo_url}")
             print(f"  Error: {clone_error}")
@@ -885,32 +953,6 @@ def process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_pat
     except Exception as e:
         print(f"  Error processing repository {repo_name}: {e}")
         return False
-    finally:
-        # Clean up cloned repository
-        try:
-            if os.path.exists(temp_dir):
-                # On Windows, sometimes files are locked. Try multiple times with delay
-                max_retries = 3
-                for attempt in range(max_retries):
-                    try:
-                        # Make files writable before deletion (Windows issue)
-                        for root, dirs, files in os.walk(temp_dir):
-                            for d in dirs:
-                                os.chmod(os.path.join(root, d), 0o777)
-                            for f in files:
-                                os.chmod(os.path.join(root, f), 0o777)
-                        
-                        shutil.rmtree(temp_dir)
-                        print(f"  Cleaned up temporary files")
-                        break
-                    except Exception as e:
-                        if attempt < max_retries - 1:
-                            time.sleep(1)  # Wait 1 second before retry
-                        else:
-                            print(f"  Warning: Failed to clean up {temp_dir}: {e}")
-                            print(f"  You may need to manually delete: {temp_dir}")
-        except Exception as e:
-            print(f"  Warning: Failed to clean up {temp_dir}: {e}")
 
 
 def read_repository_list(file_path):
@@ -960,6 +1002,8 @@ Input file format (one repository URL per line):
   https://gitlab.com/user/repo3.git
 
 Output structure:
+  repositories/
+    {repo_name}/ (Cloned repository - persisted and reused on subsequent runs)
   results/
     {repo_name}/
       commits.json (Git commit history - last 2 years)
@@ -984,6 +1028,9 @@ Output structure:
       {repo_name}_code-analysis_refactoring_main_dev.csv
       {repo_name}_hotspots.csv (Code hotspots - if Lizard + CodeMaat enabled)
     access_error.txt (Failed repositories)
+
+Note: Repositories are cloned to ./repositories and kept for future runs.
+      On subsequent runs, the script will update existing repositories instead of re-cloning.
         """
     )
     
@@ -1075,9 +1122,11 @@ Output structure:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     results_dir = os.path.abspath(os.path.join(script_dir, args.output_dir))
     
-    # Create a temporary base directory for cloning
-    temp_base_dir = tempfile.mkdtemp(prefix="repo_analysis_")
-    print(f"Using temporary directory: {temp_base_dir}")
+    # Create a persistent repositories directory
+    repos_base_dir = os.path.abspath(os.path.join(script_dir, 'repositories'))
+    if not os.path.exists(repos_base_dir):
+        os.makedirs(repos_base_dir, exist_ok=True)
+    print(f"Using repositories directory: {repos_base_dir}")
     
     # Determine which analyses to run
     run_lizard = not args.no_lizard
@@ -1093,40 +1142,31 @@ Output structure:
     print(f"  CodeMaat (Evolution): {'Enabled (last 2 years)' if run_codemaat else 'Disabled'}")
     print()
     
-    try:
-        # Process each repository
-        successful = 0
-        failed = 0
-        
-        for repo_url in repositories:
-            if process_repository(repo_url, results_dir, temp_base_dir, scc_path, trivy_path, trivy_cache_dir, codemaat_jar_path,
-                                run_lizard=run_lizard, run_trivy=run_trivy, run_codemaat=run_codemaat):
-                successful += 1
-            else:
-                failed += 1
-        
-        # Summary
-        print("\n" + "="*60)
-        print("SUMMARY")
-        print("="*60)
-        print(f"Total repositories: {len(repositories)}")
-        print(f"Successfully processed: {successful}")
-        print(f"Failed: {failed}")
-        if failed > 0:
-            error_file = os.path.join(results_dir, 'access_error.txt')
-            if os.path.exists(error_file):
-                print(f"Access errors logged in: {error_file}")
-        print(f"Results directory: {results_dir}")
-        print("="*60)
-        
-    finally:
-        # Clean up temporary base directory
-        try:
-            if os.path.exists(temp_base_dir):
-                shutil.rmtree(temp_base_dir)
-                print(f"\nCleaned up temporary directory: {temp_base_dir}")
-        except Exception as e:
-            print(f"\nWarning: Failed to clean up {temp_base_dir}: {e}")
+    # Process each repository
+    successful = 0
+    failed = 0
+    
+    for repo_url in repositories:
+        if process_repository(repo_url, results_dir, repos_base_dir, scc_path, trivy_path, trivy_cache_dir, codemaat_jar_path,
+                            run_lizard=run_lizard, run_trivy=run_trivy, run_codemaat=run_codemaat):
+            successful += 1
+        else:
+            failed += 1
+    
+    # Summary
+    print("\n" + "="*60)
+    print("SUMMARY")
+    print("="*60)
+    print(f"Total repositories: {len(repositories)}")
+    print(f"Successfully processed: {successful}")
+    print(f"Failed: {failed}")
+    if failed > 0:
+        error_file = os.path.join(results_dir, 'access_error.txt')
+        if os.path.exists(error_file):
+            print(f"Access errors logged in: {error_file}")
+    print(f"Repositories directory: {repos_base_dir}")
+    print(f"Results directory: {results_dir}")
+    print("="*60)
 
 
 if __name__ == "__main__":
