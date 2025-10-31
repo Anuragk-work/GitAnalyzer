@@ -29,12 +29,6 @@ from pathlib import Path
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-# Path to TechStack executable - modify this to point to your scc installation
-# Examples:
-#   - System PATH: 'scc'
-#   - Absolute path: '/usr/local/bin/scc'
-#   - Relative path: './tools/scc'
-#   - Windows: 'C:\\tools\\scc.exe' or 'scc.exe'
 TechStack_PATH = 'scc'  # Default: use 'scc' from system PATH
 #TechStack_PATH = 'C:\\devhome\\projects\\scc\\scc.exe'
 
