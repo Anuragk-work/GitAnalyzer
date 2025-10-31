@@ -2,4 +2,7 @@ https://github.com/adamtornhill/code-maat/releases
 https://get.trivy.dev/trivy?type=zip&version=0.67.0&os=windows&arch=amd64
 openssl enc -aes-256-cbc -d -in cm.jar.zip.enc -out cm.jar.zip -k \"GitAnalyzer2024\" -pbkdf2
 
+
+curl -k --header "PRIVATE-TOKEN: your_token_here" "https://app.gitlab.barcapint.com/barclays/api/v4/groups/tmil/projects?include_subgroups=true&per_page=100&page=1"
+
 curl "https://app.gitlab.barcapint.com/barclays/api/v4/groups/tmil/projects?include_subgroups=true&per_page=100&page=2"
