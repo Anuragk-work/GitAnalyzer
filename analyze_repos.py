@@ -994,8 +994,8 @@ Output structure:
     
     parser.add_argument(
         '-o', '--output-dir',
-        default='../results',
-        help='Output directory for results (default: ../results)'
+        default='./results',
+        help='Output directory for results (default: ./results)'
     )
     
     parser.add_argument(
