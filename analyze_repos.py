@@ -231,8 +231,7 @@ def analyze_with_lizard(repo_path):
         # Run lizard analysis on the repository
         analysis_result = lizard.analyze(
             paths=[repo_path],
-            exclude_pattern=".*/(test|tests|node_modules|venv|__pycache__|.git)/.*",
-            working_threads=1
+            exclude_pattern=".*/(test|tests|node_modules|venv|__pycache__|.git)/.*"
         )
         
         # Convert results to dictionary format
@@ -468,6 +467,16 @@ def analyze_with_codemaat(repo_path, repo_name, repo_results_dir, jar_path='./to
         
         git_log = log_result.stdout
         
+        # Save git log to file for future use
+        log_filename = f"{repo_name}_code-analysis.log"
+        log_path = os.path.join(repo_results_dir, log_filename)
+        try:
+            with open(log_path, 'w', encoding='utf-8') as f:
+                f.write(git_log)
+            print(f"  Git log saved: {log_filename}")
+        except Exception as e:
+            print(f"  Warning: Failed to save git log: {e}")
+        
         # Run all available CodeMaat analyses
         analyses_to_run = [
             "revisions",              # Code evolution - how files change over time
@@ -492,16 +501,16 @@ def analyze_with_codemaat(repo_path, repo_name, repo_results_dir, jar_path='./to
         
         for analysis_type in analyses_to_run:
             try:
-                # Run CodeMaat analysis
+                # Run CodeMaat analysis using the saved log file
                 cmd = [
                     "java", "-jar", jar_path,
+                    "-l", log_path,
                     "-c", "git2",
                     "-a", analysis_type
                 ]
                 
                 result = subprocess.run(
                     cmd,
-                    input=git_log,
                     capture_output=True,
                     text=True,
                     timeout=300
@@ -509,7 +518,7 @@ def analyze_with_codemaat(repo_path, repo_name, repo_results_dir, jar_path='./to
                 
                 if result.returncode == 0 and result.stdout.strip():
                     # Save CSV output directly to file
-                    csv_filename = f"{repo_name}_cm_{analysis_type.replace('-', '_')}.csv"
+                    csv_filename = f"{repo_name}_code-analysis_{analysis_type.replace('-', '_')}.csv"
                     csv_path = os.path.join(repo_results_dir, csv_filename)
                     
                     with open(csv_path, 'w', encoding='utf-8') as f:
@@ -553,7 +562,7 @@ def analyze_hotspots(repo_name, repo_results_dir, complexity_data, codemaat_enab
     
     try:
         # 1. Load revisions data (change frequency from CodeMaat)
-        revisions_file = os.path.join(repo_results_dir, f"{repo_name}_cm_revisions.csv")
+        revisions_file = os.path.join(repo_results_dir, f"{repo_name}_code-analysis_revisions.csv")
         
         if not os.path.exists(revisions_file):
             print(f"  Warning: Revisions file not found, skipping hotspot analysis")
@@ -957,21 +966,22 @@ Output structure:
       techStack.json (SCC results)
       complexity.json (Lizard results, if enabled)
       vulnerabilities.json (Trivy results, if enabled)
-      {repo_name}_cm_revisions.csv (CodeMaat - if enabled)
-      {repo_name}_cm_authors.csv
-      {repo_name}_cm_entity_churn.csv
-      {repo_name}_cm_coupling.csv
-      {repo_name}_cm_communication.csv
-      {repo_name}_cm_main_dev.csv
-      {repo_name}_cm_entity_effort.csv
-      {repo_name}_cm_abs_churn.csv
-      {repo_name}_cm_age.csv
-      {repo_name}_cm_author_churn.csv
-      {repo_name}_cm_entity_ownership.csv
-      {repo_name}_cm_fragmentation.csv
-      {repo_name}_cm_soc.csv
-      {repo_name}_cm_main_dev_by_revs.csv
-      {repo_name}_cm_refactoring_main_dev.csv
+      {repo_name}_code-analysis.log (Git log in CodeMaat format - if CodeMaat enabled)
+      {repo_name}_code-analysis_revisions.csv (CodeMaat - if enabled)
+      {repo_name}_code-analysis_authors.csv
+      {repo_name}_code-analysis_entity_churn.csv
+      {repo_name}_code-analysis_coupling.csv
+      {repo_name}_code-analysis_communication.csv
+      {repo_name}_code-analysis_main_dev.csv
+      {repo_name}_code-analysis_entity_effort.csv
+      {repo_name}_code-analysis_abs_churn.csv
+      {repo_name}_code-analysis_age.csv
+      {repo_name}_code-analysis_author_churn.csv
+      {repo_name}_code-analysis_entity_ownership.csv
+      {repo_name}_code-analysis_fragmentation.csv
+      {repo_name}_code-analysis_soc.csv
+      {repo_name}_code-analysis_main_dev_by_revs.csv
+      {repo_name}_code-analysis_refactoring_main_dev.csv
       {repo_name}_hotspots.csv (Code hotspots - if Lizard + CodeMaat enabled)
     access_error.txt (Failed repositories)
         """
