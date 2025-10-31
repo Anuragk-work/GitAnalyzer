@@ -818,6 +818,46 @@ def analyze_hotspots(repo_name, repo_results_dir, complexity_data, codemaat_enab
         return None
 
 
+def run_geographic_analysis(commits_file, output_dir):
+    """
+    Run geographic distribution analysis on commits.json file.
+    Calls analyze_geo_distribution.py as a subprocess.
+    """
+    try:
+        # Get the path to analyze_geo_distribution.py script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        geo_script = os.path.join(script_dir, 'analyze_geo_distribution.py')
+        
+        # Check if script exists
+        if not os.path.exists(geo_script):
+            print(f"  Warning: Geographic analysis script not found: {geo_script}")
+            return False
+        
+        # Run the geographic analysis script
+        output_file = os.path.join(output_dir, 'geographic_distribution.json')
+        
+        result = subprocess.run(
+            ['python3', geo_script, commits_file, output_file],
+            capture_output=True,
+            text=True,
+            timeout=60  # 1 minute timeout
+        )
+        
+        if result.returncode == 0:
+            print(f"  Geographic distribution analysis completed")
+            return True
+        else:
+            print(f"  Warning: Geographic analysis failed: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print(f"  Warning: Geographic analysis timed out")
+        return False
+    except Exception as e:
+        print(f"  Warning: Could not run geographic analysis: {e}")
+        return False
+
+
 def save_results(data, output_path):
     """Save analysis results to JSON file"""
     try:
@@ -896,6 +936,9 @@ def process_repository(repo_url, results_dir, repos_base_dir, scc_path, trivy_pa
             output_file = os.path.join(repo_results_dir, "commits.json")
             if save_results(commit_results, output_file):
                 analysis_results['commits'] = True
+                
+                # Run geographic distribution analysis on commits
+                run_geographic_analysis(output_file, repo_results_dir)
         else:
             analysis_results['commits'] = False
         
@@ -1011,6 +1054,7 @@ def main():
         epilog="""
 Analysis Tools:
   - Git Commit History: Extract commit data (last 2 years) - Always enabled
+  - Geographic Distribution: Analyze developer locations from commit timezones - Always enabled
   - SCC: Source code counter (tech stack) - Always enabled
   - Lizard: Code complexity analysis - Enabled by default (use --no-lizard to disable)
   - Trivy: Vulnerability scanning - Disabled by default (use --trivy to enable)
@@ -1037,6 +1081,7 @@ Output structure:
   results/
     {repo_name}/
       commits.json (Git commit history - last 2 years)
+      geographic_distribution.json (Geographic distribution analysis from commit timezones)
       techStack.json (SCC results)
       complexity.json (Lizard results, if enabled)
       vulnerabilities.json (Trivy results, if enabled)
