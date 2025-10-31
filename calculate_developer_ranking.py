@@ -133,7 +133,7 @@ class DeveloperRankingCalculator:
                 except:
                     pass
         
-        print(f"✓ Loaded {len(data.get('commits', []))} commits")
+        print(f"[OK] Loaded {len(data.get('commits', []))} commits")
     
     def load_hotspots(self):
         """Load hotspot data"""
@@ -153,7 +153,7 @@ class DeveloperRankingCalculator:
                     'avg_complexity': float(row['avg_complexity'])
                 }
         
-        print(f"✓ Loaded {len(self.hotspots)} hotspots")
+        print(f"[OK] Loaded {len(self.hotspots)} hotspots")
     
     def load_entity_ownership(self):
         """Load entity ownership data - lines added/deleted per author per file"""
@@ -191,7 +191,7 @@ class DeveloperRankingCalculator:
                     contribution = (added + deleted) * (soc_value / 1000.0)  # Normalize
                     self.developers[author]['coupling_score'] += contribution
         
-        print(f"✓ Loaded entity ownership data")
+        print(f"[OK] Loaded entity ownership data")
     
     def load_main_developers(self):
         """Load main developer data - ownership percentage"""
@@ -214,7 +214,7 @@ class DeveloperRankingCalculator:
                     'ownership': ownership
                 })
         
-        print(f"✓ Loaded main developer data")
+        print(f"[OK] Loaded main developer data")
     
     def load_complexity_data(self):
         """Load complexity data and correlate with developer contributions"""
@@ -259,7 +259,7 @@ class DeveloperRankingCalculator:
                         contribution = lines_changed * complexity / 10.0  # Normalize
                         self.developers[author]['complexity_score'] += contribution
         
-        print(f"✓ Loaded complexity data")
+        print(f"[OK] Loaded complexity data")
     
     def load_communication_data(self):
         """Load communication/collaboration data"""
@@ -288,7 +288,7 @@ class DeveloperRankingCalculator:
                         'strength': strength
                     })
         
-        print(f"✓ Loaded communication data")
+        print(f"[OK] Loaded communication data")
     
     def load_author_churn(self):
         """Load author churn data - already captured in entity ownership, but validate"""
@@ -298,7 +298,7 @@ class DeveloperRankingCalculator:
             return
         
         # This data is redundant with entity_ownership, but we can validate
-        print(f"✓ Author churn data validated")
+        print(f"[OK] Author churn data validated")
     
     def load_fragmentation_data(self):
         """Load fragmentation data"""
@@ -333,7 +333,7 @@ class DeveloperRankingCalculator:
                         contribution = lines_changed * frag_value
                         self.developers[author]['fragmentation_score'] += contribution
         
-        print(f"✓ Loaded fragmentation data")
+        print(f"[OK] Loaded fragmentation data")
     
     def load_soc_data(self):
         """Load Sum of Coupling (SOC) data"""
@@ -350,7 +350,7 @@ class DeveloperRankingCalculator:
                 self.file_to_soc[entity] = soc
         
         # Coupling score calculation happens in load_entity_ownership
-        print(f"✓ Loaded SOC (coupling) data")
+        print(f"[OK] Loaded SOC (coupling) data")
     
     def normalize_scores(self):
         """Normalize all scores to 0-100 range"""
@@ -563,7 +563,7 @@ class DeveloperRankingCalculator:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(report, f, indent=2)
         
-        print(f"✓ Detailed JSON report saved to {output_file}")
+        print(f"[OK] Detailed JSON report saved to {output_file}")
     
     def save_csv_report(self, output_file: Path, top_n: int = None):
         """Save ranking report to CSV file"""
@@ -606,7 +606,7 @@ class DeveloperRankingCalculator:
                     'last_commit_date': data.get('last_commit_date').isoformat() if data.get('last_commit_date') else ''
                 })
         
-        print(f"✓ CSV report saved to {output_file}")
+        print(f"[OK] CSV report saved to {output_file}")
     
     def run_analysis(self):
         """Run the complete analysis"""
@@ -633,7 +633,7 @@ class DeveloperRankingCalculator:
         self.normalize_scores()
         self.calculate_weighted_scores()
         
-        print(f"✓ Analysis complete! Evaluated {len(self.developers)} developers\n")
+        print(f"[OK] Analysis complete! Evaluated {len(self.developers)} developers\n")
 
 
 def main():
