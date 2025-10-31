@@ -1,73 +1,69 @@
-# Decryption Instructions for cm.jar.zip.enc
+# Extract Instructions for cm.jar.zip
 
-The `cm.jar.zip.enc` file is an encrypted, compressed archive containing the CodeMaat JAR file.
+The `cm.jar.zip` file is a password-protected compressed archive containing the CodeMaat JAR file.
 
-## Encryption Details
-- **Algorithm:** AES-256-CBC
+## File Details
+- **Encryption:** Standard ZIP password protection
 - **Password:** `GitAnalyzer2024`
-- **File Size:** 35 MB (encrypted)
+- **File Size:** 35 MB (compressed)
 - **Original Size:** 38 MB (cm.jar)
+- **Compatibility:** Works natively on Windows, macOS, Linux
 
 ---
 
-## Decryption Instructions
+## Extraction Instructions
 
-### On Windows (PowerShell or Command Prompt)
+### On Windows (Built-in - No Extra Tools Needed!)
 
-**Prerequisites:** Install OpenSSL for Windows
-- Download from: https://slproweb.com/products/Win32OpenSSL.html
-- Or use Git Bash (includes OpenSSL)
+**Method 1: Using Windows Explorer (Easiest)**
+1. Right-click on `cm.jar.zip`
+2. Select "Extract All..."
+3. Choose destination folder
+4. When prompted, enter password: `GitAnalyzer2024`
+5. Click "Extract"
 
-**Decrypt the file:**
+**Method 2: Using PowerShell**
 ```powershell
-openssl enc -aes-256-cbc -d -in cm.jar.zip.enc -out cm.jar.zip -k "GitAnalyzer2024" -pbkdf2
+# Extract with password
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::ExtractToDirectory("cm.jar.zip", ".")
+
+# Or use 7-Zip if installed
+7z x cm.jar.zip -pGitAnalyzer2024
 ```
 
-**Extract the ZIP:**
-```powershell
-Expand-Archive -Path cm.jar.zip -DestinationPath .
-```
-
-**Or using right-click:**
-```
-Right-click cm.jar.zip -> Extract All -> Choose destination
+**Method 3: Using Command Prompt with tar (Windows 10+)**
+```cmd
+tar -xf cm.jar.zip
+# Enter password when prompted: GitAnalyzer2024
 ```
 
 ---
 
-### On macOS/Linux
+### On macOS
 
-**Decrypt the file:**
-```bash
-openssl enc -aes-256-cbc -d -in cm.jar.zip.enc -out cm.jar.zip -k "GitAnalyzer2024" -pbkdf2
-```
+**Method 1: Using Finder (Easiest)**
+1. Double-click `cm.jar.zip`
+2. Enter password when prompted: `GitAnalyzer2024`
 
-**Extract the ZIP:**
+**Method 2: Using Terminal**
 ```bash
 unzip cm.jar.zip
+# Enter password when prompted: GitAnalyzer2024
 ```
 
 ---
 
-## Alternative: Using Git Bash on Windows
-
-If you have Git installed on Windows, you can use Git Bash:
+### On Linux
 
 ```bash
-# Decrypt
-openssl enc -aes-256-cbc -d -in cm.jar.zip.enc -out cm.jar.zip -k "GitAnalyzer2024" -pbkdf2
-
-# Extract
 unzip cm.jar.zip
+# Enter password when prompted: GitAnalyzer2024
 ```
 
----
-
-## One-Line Command (All Platforms)
-
-**Decrypt and extract in one step:**
+**Or with 7-Zip:**
 ```bash
-openssl enc -aes-256-cbc -d -in cm.jar.zip.enc -k "GitAnalyzer2024" -pbkdf2 | funzip > tools/cm.jar
+7z x cm.jar.zip -pGitAnalyzer2024
 ```
 
 ---
@@ -96,36 +92,49 @@ For production use with sensitive tools:
 
 ## Troubleshooting
 
-### Error: "bad decrypt"
+### Error: "Wrong password" or "incorrect password"
 - Check password is exactly: `GitAnalyzer2024` (case-sensitive)
-- Ensure you're using the correct file: `cm.jar.zip.enc`
+- No extra spaces before or after the password
+- Try typing it manually instead of copy-pasting
 
-### Error: "openssl: command not found"
-- Install OpenSSL (see prerequisites above)
-- On Windows: Use Git Bash or install OpenSSL separately
+### Error: "Cannot open file" or "Archive is corrupted"
+- Ensure you downloaded the complete file (should be ~35 MB)
+- Try downloading again
+- Verify file integrity
 
-### File not extracting
-- Verify cm.jar.zip was successfully decrypted (should be ~35 MB)
-- Use `unzip -l cm.jar.zip` to test the archive
+### Windows: "The Compressed (zipped) Folder is invalid"
+- Use 7-Zip or WinRAR instead of built-in Windows extractor
+- Or use PowerShell/Command Prompt method
+
+### File not extracting to correct location
+- Verify extraction destination
+- Check that `tools/` directory exists
+- Expected final location: `./tools/cm.jar`
 
 ---
 
 ## Quick Start
 
-**Complete workflow:**
+**Windows (Easiest):**
+```
+1. Right-click cm.jar.zip
+2. Extract All
+3. Enter password: GitAnalyzer2024
+4. Done!
+```
+
+**Command Line (All Platforms):**
 ```bash
-# 1. Decrypt
-openssl enc -aes-256-cbc -d -in cm.jar.zip.enc -out cm.jar.zip -k "GitAnalyzer2024" -pbkdf2
-
-# 2. Extract
+# Extract
 unzip cm.jar.zip
+# Enter password: GitAnalyzer2024
 
-# 3. Verify
+# Verify
 ls -lh tools/cm.jar
 
-# 4. Clean up (optional)
+# Clean up (optional)
 rm cm.jar.zip
 ```
 
-Done! The CodeMaat JAR is ready to use.
+Done! The CodeMaat JAR is ready to use at `./tools/cm.jar`
 
