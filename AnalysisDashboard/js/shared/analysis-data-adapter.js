@@ -80,16 +80,8 @@ class AnalysisDataAdapter {
             }
             
             // Strategy 2: Probe known/common repository folder names
-            // Start with common patterns and known repositories
-            const knownRepositories = [
-                'newrelic-dotnet-agent',
-                'newrelic-ruby-agent',
-                'newrelic-java-agent',
-                'newrelic-nodejs-agent',
-                'newrelic-python-agent',
-                'newrelic-php-agent',
-                'newrelic-go-agent'
-            ];
+            // Start with repositories from cache (if any)
+            const knownRepositories = [];
             
             // Combine known repos with cached names, avoiding duplicates
             const reposToProbe = [...new Set([...knownRepositories, ...Array.from(testedNames)])];

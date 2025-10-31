@@ -99,14 +99,20 @@ class DeveloperIndexDashboard {
         try {
             const response = await fetch('AnalysisData/.directories.json');
             if (!response.ok) {
-                // Fallback to hardcoded list
-                return ['newrelic-dotnet-agent', 'newrelic-ruby-agent'];
+                console.warn('⚠️ .directories.json not found. Please run: python3 scripts/generate-directory-listing.py');
+                return [];
             }
             const data = await response.json();
-            return data.directories || ['newrelic-dotnet-agent', 'newrelic-ruby-agent'];
+            if (!data.directories || data.directories.length === 0) {
+                console.warn('⚠️ No repositories found in .directories.json');
+                return [];
+            }
+            console.log(`✅ Discovered ${data.directories.length} repositories from .directories.json`);
+            return data.directories;
         } catch (error) {
-            console.warn('⚠️ Failed to load directories, using fallback:', error);
-            return ['newrelic-dotnet-agent', 'newrelic-ruby-agent'];
+            console.error('❌ Failed to load directories:', error);
+            console.warn('⚠️ Please run: python3 scripts/generate-directory-listing.py');
+            return [];
         }
     }
 

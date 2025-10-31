@@ -36,8 +36,9 @@ def generate_directory_listing():
     
     # Write .directories.json
     output_file = analysis_data_dir / '.directories.json'
+    output_data = {"directories": repositories}
     with open(output_file, 'w') as f:
-        json.dump(repositories, f, indent=2)
+        json.dump(output_data, f, indent=2)
     
     print(f"\n✅ Generated {output_file}")
     print(f"   Found {len(repositories)} repository/repositories:")
