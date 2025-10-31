@@ -2,12 +2,12 @@
 """
 Script to analyze GitLab repositories using multiple analysis tools:
 - Git Commit History: Extract commit data (last 2 years)
-- SCC: Source code counter (tech stack analysis)
-- Lizard: Code complexity analysis
+- TechStack: Source code counter (tech stack analysis)
+- Complexity: Code complexity analysis
 - Trivy: Vulnerability scanning
-- CodeMaat: Code evolution analysis (last 2 years)
+- CodeAnalysis: Code evolution analysis (last 2 years)
 - Hotspot Analysis: Identify high-risk code (high complexity + high change frequency)
-- Developer Ranking: Weighted contributor ranking (automatic if CodeMaat enabled)
+- Developer Ranking: Weighted contributor ranking (automatic if CodeAnalysis enabled)
 
 Reads a list of repository URLs from a text file, clones each repository,
 runs analyses, and stores results in JSON/CSV format.
@@ -29,39 +29,21 @@ from pathlib import Path
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-# Path to SCC executable - modify this to point to your scc installation
+# Path to TechStack executable - modify this to point to your scc installation
 # Examples:
 #   - System PATH: 'scc'
 #   - Absolute path: '/usr/local/bin/scc'
 #   - Relative path: './tools/scc'
 #   - Windows: 'C:\\tools\\scc.exe' or 'scc.exe'
-SCC_PATH = 'scc'  # Default: use 'scc' from system PATH
-#SCC_PATH = 'C:\\devhome\\projects\\scc\\scc.exe'
+TechStack_PATH = 'scc'  # Default: use 'scc' from system PATH
+#TechStack_PATH = 'C:\\devhome\\projects\\scc\\scc.exe'
 
-# Path to Trivy executable - modify this to point to your trivy installation
-# Examples:
-#   - System PATH: 'trivy'
-#   - Absolute path: '/usr/local/bin/trivy'
-#   - Relative path: './tools/trivy'
-#   - Windows: 'C:\\tools\\trivy.exe' or 'trivy.exe'
 TRIVY_PATH = 'trivy'  # Default: use 'trivy' from system PATH
 #TRIVY_PATH = 'C:\\devhome\\projects\\tools\\trivy.exe'
 
-# Path to Trivy cache directory for offline usage (optional)
-# If set, Trivy will use this cache and skip database updates (offline mode)
-# Set to None to use online mode (downloads latest vulnerability database)
-# Examples:
-#   - Relative path: './tools/trivy-cache'
-#   - Absolute path: '/path/to/trivy-cache'
-#   - Windows: 'C:\\tools\\trivy-cache'
 TRIVY_CACHE_DIR = './tools/trivy-cache'  # Default: use local cache in tools directory
 #TRIVY_CACHE_DIR = 'C:\\devhome\\projects\\tools\\trivy.exe'
 
-# Path to CodeMaat JAR file - for code evolution analysis
-# Examples:
-#   - Relative path: './tools/cm.jar'
-#   - Absolute path: '/usr/local/bin/cm.jar'
-#   - Windows: 'C:\\tools\\cm.jar'
 CODEMAAT_JAR_PATH = './tools/cm.jar'  # Default: use cm.jar in tools directory
 #CODEMAAT_JAR_PATH = 'C:\\devhome\\projects\\tools\\cm.jar'
 # ============================================================================
@@ -282,7 +264,7 @@ def collect_commit_data(repo_path):
 
 def analyze_with_scc(repo_path, scc_path):
     """Run scc on the repository and return JSON output"""
-    print(f"  Running SCC analysis...")
+    print(f"  Running TechStack analysis...")
     # Run scc with JSON format output
     # Use shell=True to handle path with spaces or special characters
     result = run_command(f'"{scc_path}" --format json', cwd=repo_path)
@@ -291,14 +273,14 @@ def analyze_with_scc(repo_path, scc_path):
         try:
             return json.loads(result)
         except json.JSONDecodeError as e:
-            print(f"  Error parsing SCC output: {e}")
+            print(f"  Error parsing TechStack output: {e}")
             return None
     return None
 
 
 def analyze_with_lizard(repo_path):
-    """Run Lizard code complexity analysis using subprocess"""
-    print(f"  Running Lizard complexity analysis...")
+    """Run Complexity code complexity analysis using subprocess"""
+    print(f"  Running Complexity complexity analysis...")
     try:
         # Determine Python command (python3 on Unix/Mac, python on Windows)
         python_cmd = sys.executable if sys.executable else "python"
@@ -324,14 +306,14 @@ def analyze_with_lizard(repo_path):
         )
         
         if result.returncode != 0 and result.returncode != 120:  # 120 is lizard's "files too complex" code
-            print(f"  Warning: Lizard analysis returned error: {result.stderr}")
+            print(f"  Warning: Complexity analysis returned error: {result.stderr}")
             return None
         
         if not result.stdout.strip():
-            print(f"  Warning: No Lizard output")
+            print(f"  Warning: No Complexity output")
             return None
         
-        # Parse CSV output (Lizard CSV has no header row)
+        # Parse CSV output (Complexity CSV has no header row)
         # Format: NLOC,CCN,token,PARAM,length,location,file,function,long_name,start_line,end_line
         functions_list = []
         csv_reader = csv.reader(StringIO(result.stdout))
@@ -390,14 +372,14 @@ def analyze_with_lizard(repo_path):
         }
         
     except FileNotFoundError:
-        print(f"  Warning: Lizard not found. Skipping complexity analysis.")
+        print(f"  Warning: Complexity not found. Skipping complexity analysis.")
         print(f"  Install with: pip install lizard")
         return None
     except subprocess.TimeoutExpired:
-        print(f"  Warning: Lizard analysis timed out.")
+        print(f"  Warning: Complexity analysis timed out.")
         return None
     except Exception as e:
-        print(f"  Error running Lizard analysis: {e}")
+        print(f"  Error running Complexity analysis: {e}")
         return None
 
 
@@ -526,32 +508,32 @@ def analyze_with_trivy(repo_path, trivy_path='trivy', cache_dir=None):
         return None
 
 
-def analyze_with_codemaat(repo_path, repo_name, repo_results_dir, jar_path='./tools/cm.jar'):
-    """Run CodeMaat evolution analysis (last 2 years) - All 15 analysis types
+def analyze_with_codeanalysis(repo_path, repo_name, repo_results_dir, jar_path='./tools/cm.jar'):
+    """Run CodeAnalysis evolution analysis (last 2 years) - All 15 analysis types
     
     Saves each analysis as a separate CSV file:
     - {repo}_cm_revisions.csv
     - {repo}_cm_authors.csv
     - etc.
     """
-    print(f"  Running CodeMaat evolution analysis (15 types, last 2 years)...")
+    print(f"  Running CodeAnalysis evolution analysis (15 types, last 2 years)...")
     
     try:
-        # Check if CodeMaat JAR exists
+        # Check if CodeAnalysis exists
         if not os.path.isfile(jar_path):
-            print(f"  Warning: CodeMaat JAR not found at: {jar_path}")
-            print(f"  Skipping CodeMaat analysis.")
+            print(f"  Warning: CodeAnalysis JAR not found at: {jar_path}")
+            print(f"  Skipping CodeAnalysis analysis.")
             return None
         
         # Check if Java is available
         try:
             subprocess.run(["java", "-version"], capture_output=True, timeout=5)
         except (FileNotFoundError, subprocess.TimeoutExpired):
-            print(f"  Warning: Java not found. CodeMaat requires Java.")
+            print(f"  Warning: Java not found. CodeAnalysis requires Java.")
             return None
         
-        # Extract git log in CodeMaat format (last 2 years)
-        print(f"  Extracting git log for CodeMaat...")
+        # Extract git log in CodeAnalysis format (last 2 years)
+        print(f"  Extracting git log for CodeAnalysis...")
         log_cmd = [
             "git", "-C", repo_path,
             "log", "--all",
@@ -570,7 +552,7 @@ def analyze_with_codemaat(repo_path, repo_name, repo_results_dir, jar_path='./to
         )
         
         if log_result.returncode != 0 or not log_result.stdout.strip():
-            print(f"  Warning: Failed to extract git log for CodeMaat")
+            print(f"  Warning: Failed to extract git log for CodeAnalysis")
             return None
         
         git_log = log_result.stdout
@@ -585,7 +567,7 @@ def analyze_with_codemaat(repo_path, repo_name, repo_results_dir, jar_path='./to
         except Exception as e:
             print(f"  Warning: Failed to save git log: {e}")
         
-        # Run all available CodeMaat analyses
+        # Run all available CodeAnalysis analyses
         analyses_to_run = [
             "revisions",              # Code evolution - how files change over time
             "authors",                # Author analysis - contributor patterns
@@ -609,7 +591,7 @@ def analyze_with_codemaat(repo_path, repo_name, repo_results_dir, jar_path='./to
         
         for analysis_type in analyses_to_run:
             try:
-                # Run CodeMaat analysis using the saved log file
+                # Run CodeAnalysis analysis using the saved log file
                 cmd = [
                     "java", "-jar", jar_path,
                     "-l", log_path,
@@ -652,24 +634,24 @@ def analyze_with_codemaat(repo_path, repo_name, repo_results_dir, jar_path='./to
         }
         
     except Exception as e:
-        print(f"  Error running CodeMaat analysis: {e}")
+        print(f"  Error running CodeAnalysis analysis: {e}")
         return None
 
 
-def analyze_hotspots(repo_name, repo_results_dir, complexity_data, codemaat_enabled):
+def analyze_hotspots(repo_name, repo_results_dir, complexity_data, codeanalysis_enabled):
     """
     Identify code hotspots by combining revisions (change frequency) and complexity.
     
     Hotspots = High change frequency + High complexity
     These are high-risk areas that need attention.
     """
-    if not codemaat_enabled:
+    if not codeanalysis_enabled:
         return None
     
     print(f"  Analyzing code hotspots...")
     
     try:
-        # 1. Load revisions data (change frequency from CodeMaat)
+        # 1. Load revisions data (change frequency from CodeAnalysis)
         revisions_file = os.path.join(repo_results_dir, f"{repo_name}_code-analysis_revisions.csv")
         
         if not os.path.exists(revisions_file):
@@ -699,7 +681,7 @@ def analyze_hotspots(repo_name, repo_results_dir, complexity_data, codemaat_enab
             print(f"  Warning: No revision data found")
             return None
         
-        # 2. Aggregate complexity by file from Lizard data
+        # 2. Aggregate complexity by file from Complexity data
         if not complexity_data or not complexity_data.get('functions'):
             print(f"  Warning: No complexity data available")
             return None
@@ -749,7 +731,7 @@ def analyze_hotspots(repo_name, repo_results_dir, complexity_data, codemaat_enab
                 if idx > 0 and idx % 1000 == 0:
                     print(f"  Progress: {idx}/{len(revisions)} files processed...")
                 
-                # Try to match file paths (CodeMaat may have different path format)
+                # Try to match file paths (CodeAnalysis may have different path format)
                 matched_complexity = None
                 
                 # Normalize revision file path
@@ -907,7 +889,7 @@ def run_developer_ranking(repo_results_dir, repo_name):
     Requires:
     - commits.json
     - *_hotspots.csv
-    - CodeMaat analysis files
+    - CodeAnalysis analysis files
     """
     try:
         # Get the path to calculate_developer_ranking.py script
@@ -1012,7 +994,7 @@ def log_access_error(repo_url, error_message, results_dir):
         return False
 
 
-def process_repository(repo_url, results_dir, repos_base_dir, scc_path, trivy_path='trivy', trivy_cache_dir=None, codemaat_jar_path=None, run_lizard=True, run_trivy=False, run_codemaat=False):
+def process_repository(repo_url, results_dir, repos_base_dir, scc_path, trivy_path='trivy', trivy_cache_dir=None, codeanalysis_jar_path=None, run_lizard=True, run_trivy=False, run_codeanalysis=False):
     """Process a single repository: clone/update, analyze, and save results"""
     repo_name = extract_repo_name(repo_url)
     print(f"\nProcessing: {repo_name}")
@@ -1055,7 +1037,7 @@ def process_repository(repo_url, results_dir, repos_base_dir, scc_path, trivy_pa
         else:
             analysis_results['commits'] = False
         
-        # Run SCC analysis (tech stack)
+        # Run TechStack analysis (tech stack)
         scc_data = analyze_with_scc(clone_path, scc_path)
         if scc_data:
             scc_results = {
@@ -1069,10 +1051,10 @@ def process_repository(repo_url, results_dir, repos_base_dir, scc_path, trivy_pa
             if save_results(scc_results, output_file):
                 analysis_results['techstack'] = True
         else:
-            print(f"  Warning: SCC analysis failed")
+            print(f"  Warning: TechStack analysis failed")
             analysis_results['techstack'] = False
         
-        # Run Lizard analysis (code complexity)
+        # Run Complexity analysis (code complexity)
         lizard_data = None
         if run_lizard:
             lizard_data = analyze_with_lizard(clone_path)
@@ -1107,21 +1089,21 @@ def process_repository(repo_url, results_dir, repos_base_dir, scc_path, trivy_pa
             else:
                 analysis_results['vulnerabilities'] = False
         
-        # Run CodeMaat analysis (code evolution)
-        codemaat_successful = False
-        if run_codemaat:
-            codemaat_summary = analyze_with_codemaat(clone_path, repo_name, repo_results_dir, codemaat_jar_path)
-            if codemaat_summary and codemaat_summary['successful'] > 0:
-                print(f"  CodeMaat: {codemaat_summary['successful']}/{codemaat_summary['total']} analyses completed")
-                analysis_results['codemaat'] = True
-                codemaat_successful = True
+        # Run CodeAnalysis analysis (code evolution)
+        codeanalysis_successful = False
+        if run_codeanalysis:
+            codeanalysis_summary = analyze_with_codeanalysis(clone_path, repo_name, repo_results_dir, codeanalysis_jar_path)
+            if codeanalysis_summary and codeanalysis_summary['successful'] > 0:
+                print(f"  CodeAnalysis: {codeanalysis_summary['successful']}/{codeanalysis_summary['total']} analyses completed")
+                analysis_results['codeanalysis'] = True
+                codeanalysis_successful = True
             else:
-                analysis_results['codemaat'] = False
+                analysis_results['codeanalysis'] = False
         
-        # Run Hotspot analysis (combines Lizard + CodeMaat)
-        # Automatically runs if both Lizard and CodeMaat data are available
+        # Run Hotspot analysis (combines Complexity + CodeAnalysis)
+        # Automatically runs if both Complexity and CodeAnalysis data are available
         hotspot_successful = False
-        if run_lizard and codemaat_successful and lizard_data:
+        if run_lizard and codeanalysis_successful and lizard_data:
             hotspot_summary = analyze_hotspots(repo_name, repo_results_dir, lizard_data, True)
             if hotspot_summary:
                 analysis_results['hotspots'] = True
@@ -1129,8 +1111,8 @@ def process_repository(repo_url, results_dir, repos_base_dir, scc_path, trivy_pa
             else:
                 analysis_results['hotspots'] = False
         
-        # Run Developer Ranking analysis (automatic if CodeMaat + hotspots are available)
-        if codemaat_successful and hotspot_successful:
+        # Run Developer Ranking analysis (automatic if CodeAnalysis + hotspots are available)
+        if codeanalysis_successful and hotspot_successful:
             if run_developer_ranking(repo_results_dir, repo_name):
                 analysis_results['developer_ranking'] = True
             else:
@@ -1177,20 +1159,20 @@ def main():
 Analysis Tools:
   - Git Commit History: Extract commit data (last 2 years) - Always enabled
   - Geographic Distribution: Analyze developer locations from commit timezones - Always enabled
-  - SCC: Source code counter (tech stack) - Always enabled
-  - Lizard: Code complexity analysis - Enabled by default (use --no-lizard to disable)
+  - TechStack: Source code counter (tech stack) - Always enabled
+  - Complexity: Code complexity analysis - Enabled by default (use --no-lizard to disable)
   - Trivy: Vulnerability scanning - Disabled by default (use --trivy to enable)
-  - CodeMaat: Code evolution analysis (last 2 years) - Disabled by default (use --codemaat to enable)
-  - Developer Ranking: Weighted contributor analysis - Automatic when CodeMaat + hotspots enabled
+  - CodeAnalysis: Code evolution analysis (last 2 years) - Disabled by default (use --codeanalysis to enable)
+  - Developer Ranking: Weighted contributor analysis - Automatic when CodeAnalysis + hotspots enabled
 
 Examples:
   python3 analyze_repos.py repos.txt
   python3 analyze_repos.py repos.txt -o /path/to/results
-  python3 analyze_repos.py repos.txt --trivy --codemaat
+  python3 analyze_repos.py repos.txt --trivy --codeanalysis
   python3 analyze_repos.py repos.txt --no-lizard --trivy
   python3 analyze_repos.py repos.txt --scc-path /usr/local/bin/scc
   python3 analyze_repos.py repos.txt --trivy --trivy-path ./tools/trivy
-  python3 analyze_repos.py repos.txt --codemaat --codemaat-jar-path ./tools/cm.jar
+  python3 analyze_repos.py repos.txt --codeanalysis --codeanalysis-jar-path ./tools/cm.jar
   
 Input file format (one repository URL per line):
   https://gitlab.com/user/repo1.git
@@ -1205,11 +1187,11 @@ Output structure:
     {repo_name}/
       commits.json (Git commit history - last 2 years)
       geographic_distribution.json (Geographic distribution analysis from commit timezones)
-      techStack.json (SCC results)
-      complexity.json (Lizard results, if enabled)
+      techStack.json (TechStack results)
+      complexity.json (Complexity results, if enabled)
       vulnerabilities.json (Trivy results, if enabled)
-      {repo_name}_code-analysis.log (Git log in CodeMaat format - if CodeMaat enabled)
-      {repo_name}_code-analysis_revisions.csv (CodeMaat - if enabled)
+      {repo_name}_code-analysis.log (Git log in CodeAnalysis format - if CodeAnalysis enabled)
+      {repo_name}_code-analysis_revisions.csv (CodeAnalysis - if enabled)
       {repo_name}_code-analysis_authors.csv
       {repo_name}_code-analysis_entity_churn.csv
       {repo_name}_code-analysis_coupling.csv
@@ -1224,9 +1206,9 @@ Output structure:
       {repo_name}_code-analysis_soc.csv
       {repo_name}_code-analysis_main_dev_by_revs.csv
       {repo_name}_code-analysis_refactoring_main_dev.csv
-      {repo_name}_hotspots.csv (Code hotspots - if Lizard + CodeMaat enabled)
-      developer_rankings.json (Developer rankings - automatic if CodeMaat + hotspots enabled)
-      developer_rankings.csv (Developer rankings CSV - automatic if CodeMaat + hotspots enabled)
+      {repo_name}_hotspots.csv (Code hotspots - if Complexity + CodeAnalysis enabled)
+      developer_rankings.json (Developer rankings - automatic if CodeAnalysis + hotspots enabled)
+      developer_rankings.csv (Developer rankings CSV - automatic if CodeAnalysis + hotspots enabled)
     access_error.txt (Failed repositories)
 
 Note: Repositories are cloned to ./repositories and kept for future runs.
@@ -1247,8 +1229,8 @@ Note: Repositories are cloned to ./repositories and kept for future runs.
     
     parser.add_argument(
         '--scc-path',
-        default=SCC_PATH,
-        help=f'Path to SCC executable (default: {SCC_PATH})'
+        default=TechStack_PATH,
+        help=f'Path to TechStack executable (default: {TechStack_PATH})'
     )
     
     parser.add_argument(
@@ -1266,7 +1248,7 @@ Note: Repositories are cloned to ./repositories and kept for future runs.
     parser.add_argument(
         '--no-lizard',
         action='store_true',
-        help='Disable Lizard code complexity analysis (enabled by default)'
+        help='Disable Complexity code complexity analysis (enabled by default)'
     )
     
     parser.add_argument(
@@ -1276,15 +1258,15 @@ Note: Repositories are cloned to ./repositories and kept for future runs.
     )
     
     parser.add_argument(
-        '--codemaat',
+        '--codeanalysis',
         action='store_true',
-        help='Enable CodeMaat evolution analysis (disabled by default)'
+        help='Enable CodeAnalysis evolution analysis (disabled by default)'
     )
     
     parser.add_argument(
-        '--codemaat-jar-path',
+        '--codeanalysis-jar-path',
         default=CODEMAAT_JAR_PATH,
-        help=f'Path to CodeMaat JAR file (default: {CODEMAAT_JAR_PATH})'
+        help=f'Path to CodeAnalysis JAR file (default: {CODEMAAT_JAR_PATH})'
     )
     
     args = parser.parse_args()
@@ -1293,18 +1275,18 @@ Note: Repositories are cloned to ./repositories and kept for future runs.
     scc_path = args.scc_path
     trivy_path = args.trivy_path
     trivy_cache_dir = args.trivy_cache_dir if args.trivy_cache_dir else None
-    codemaat_jar_path = args.codemaat_jar_path
+    codeanalysis_jar_path = args.codeanalysis_jar_path
     
     # Check if scc is installed
-    print(f"Using SCC from: {scc_path}")
+    print(f"Using TechStack from: {scc_path}")
     if not check_scc_installed(scc_path):
         print(f"Error: 'scc' command not found at: {scc_path}")
-        print("Please install SCC from: https://github.com/boyter/scc")
+        print("Please install TechStack from: https://github.com/boyter/scc")
         print("\nInstallation options:")
         print("  - macOS: brew install scc")
         print("  - Or download from: https://github.com/boyter/scc/releases")
         print("\nYou can specify the path using:")
-        print("  - Edit SCC_PATH in the script")
+        print("  - Edit TechStack_PATH in the script")
         print("  - Use --scc-path argument")
         sys.exit(1)
     
@@ -1331,20 +1313,20 @@ Note: Repositories are cloned to ./repositories and kept for future runs.
     # Determine which analyses to run
     run_lizard = not args.no_lizard
     run_trivy = args.trivy
-    run_codemaat = args.codemaat
+    run_codeanalysis = args.codeanalysis
     
     # Display configuration
     print(f"\nAnalysis Configuration:")
     print(f"  Git Commits: Always enabled (last 2 years)")
     print(f"  Geographic Distribution: Always enabled")
-    print(f"  SCC (TechStack): Always enabled")
-    print(f"  Lizard (Complexity): {'Enabled' if run_lizard else 'Disabled'}")
+    print(f"  TechStack (TechStack): Always enabled")
+    print(f"  Complexity (Complexity): {'Enabled' if run_lizard else 'Disabled'}")
     print(f"  Trivy (Vulnerabilities): {'Enabled' if run_trivy else 'Disabled'}")
-    print(f"  CodeMaat (Evolution): {'Enabled (last 2 years)' if run_codemaat else 'Disabled'}")
-    if run_codemaat and run_lizard:
-        print(f"  Developer Ranking: Will run automatically (CodeMaat + Lizard enabled)")
+    print(f"  CodeAnalysis (Evolution): {'Enabled (last 2 years)' if run_codeanalysis else 'Disabled'}")
+    if run_codeanalysis and run_lizard:
+        print(f"  Developer Ranking: Will run automatically (CodeAnalysis + Complexity enabled)")
     else:
-        print(f"  Developer Ranking: Disabled (requires CodeMaat + Lizard)")
+        print(f"  Developer Ranking: Disabled (requires CodeAnalysis + Complexity)")
     print()
     
     # Process each repository
@@ -1352,8 +1334,8 @@ Note: Repositories are cloned to ./repositories and kept for future runs.
     failed = 0
     
     for repo_url in repositories:
-        if process_repository(repo_url, results_dir, repos_base_dir, scc_path, trivy_path, trivy_cache_dir, codemaat_jar_path,
-                            run_lizard=run_lizard, run_trivy=run_trivy, run_codemaat=run_codemaat):
+        if process_repository(repo_url, results_dir, repos_base_dir, scc_path, trivy_path, trivy_cache_dir, codeanalysis_jar_path,
+                            run_lizard=run_lizard, run_trivy=run_trivy, run_codeanalysis=run_codeanalysis):
             successful += 1
         else:
             failed += 1
