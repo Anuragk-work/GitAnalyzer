@@ -291,38 +291,60 @@ def analyze_with_scc(repo_path, scc_path):
 
 
 def analyze_with_lizard(repo_path):
-    """Run Lizard code complexity analysis using Python library"""
+    """Run Lizard code complexity analysis using subprocess"""
     print(f"  Running Lizard complexity analysis...")
     try:
-        # Import lizard library
-        import lizard
+        # Run lizard via subprocess with CSV output for easier parsing
+        cmd = [
+            "python3", "-m", "lizard",
+            "--csv",
+            # Exclude common infrastructure directories
+            "-x", "*/node_modules/*",
+            "-x", "*/venv/*",
+            "-x", "*/env/*",
+            "-x", "*/__pycache__/*",
+            "-x", "*/.git/*",
+            repo_path
+        ]
         
-        # Run lizard analysis on the repository
-        analysis_result = lizard.analyze(
-            paths=[repo_path],
-            exclude_pattern=".*/(test|tests|node_modules|venv|__pycache__|.git)/.*"
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600  # 10 minute timeout for large repos
         )
         
-        # Convert results to dictionary format
+        if result.returncode != 0 and result.returncode != 120:  # 120 is lizard's "files too complex" code
+            print(f"  Warning: Lizard analysis returned error: {result.stderr}")
+            return None
+        
+        if not result.stdout.strip():
+            print(f"  Warning: No Lizard output")
+            return None
+        
+        # Parse CSV output (Lizard CSV has no header row)
+        # Format: NLOC,CCN,token,PARAM,length,location,file,function,long_name,start_line,end_line
         functions_list = []
-        for item in analysis_result:
-            if hasattr(item, 'function_list'):
-                for func in item.function_list:
+        csv_reader = csv.reader(StringIO(result.stdout))
+        
+        for row in csv_reader:
+            try:
+                if len(row) >= 11:  # Ensure we have all expected columns
                     functions_list.append({
-                        'name': func.name,
-                        'long_name': func.long_name,
-                        'file': item.filename,
-                        'start_line': func.start_line,
-                        'end_line': func.end_line,
-                        'nloc': func.nloc,
-                        'cyclomatic_complexity': func.cyclomatic_complexity,
-                        'token_count': func.token_count,
-                        'parameter_count': len(func.parameters) if hasattr(func, 'parameters') else 0,
-                        'length': func.length,
-                        'fan_in': func.fan_in if hasattr(func, 'fan_in') else 0,
-                        'fan_out': func.fan_out if hasattr(func, 'fan_out') else 0,
-                        'general_fan_out': func.general_fan_out if hasattr(func, 'general_fan_out') else 0,
+                        'nloc': int(row[0]),
+                        'cyclomatic_complexity': int(row[1]),
+                        'token_count': int(row[2]),
+                        'parameter_count': int(row[3]),
+                        'length': int(row[4]),
+                        'file': row[6],
+                        'name': row[7],
+                        'long_name': row[8],
+                        'start_line': int(row[9]),
+                        'end_line': int(row[10]),
                     })
+            except (ValueError, IndexError) as e:
+                # Skip malformed rows
+                continue
         
         # Calculate summary statistics
         if functions_list:
@@ -340,6 +362,9 @@ def analyze_with_lizard(repo_path):
                 },
                 'total_nloc': sum(f['nloc'] for f in functions_list)
             }
+            
+            # Sort by complexity (highest first) to capture most important functions
+            functions_list.sort(key=lambda x: x['cyclomatic_complexity'], reverse=True)
         else:
             summary = {
                 'total_functions': 0,
@@ -348,14 +373,19 @@ def analyze_with_lizard(repo_path):
                 'min_complexity': 0
             }
         
+        print(f"  Found {summary['total_functions']} functions")
+        
         return {
             'summary': summary,
-            'functions': functions_list[:100]  # Limit to top 100 functions for file size
+            'functions': functions_list[:500]  # Limit to top 500 most complex functions
         }
         
-    except ImportError:
-        print(f"  Warning: Lizard library not installed. Skipping complexity analysis.")
+    except FileNotFoundError:
+        print(f"  Warning: Lizard not found. Skipping complexity analysis.")
         print(f"  Install with: pip install lizard")
+        return None
+    except subprocess.TimeoutExpired:
+        print(f"  Warning: Lizard analysis timed out.")
         return None
     except Exception as e:
         print(f"  Error running Lizard analysis: {e}")
