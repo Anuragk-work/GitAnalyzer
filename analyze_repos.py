@@ -34,6 +34,7 @@ from io import StringIO
 #   - Relative path: './tools/scc'
 #   - Windows: 'C:\\tools\\scc.exe' or 'scc.exe'
 SCC_PATH = 'scc'  # Default: use 'scc' from system PATH
+#SCC_PATH = 'C:\\devhome\\projects\\scc\\scc.exe'
 
 # Path to Trivy executable - modify this to point to your trivy installation
 # Examples:
@@ -42,6 +43,7 @@ SCC_PATH = 'scc'  # Default: use 'scc' from system PATH
 #   - Relative path: './tools/trivy'
 #   - Windows: 'C:\\tools\\trivy.exe' or 'trivy.exe'
 TRIVY_PATH = 'trivy'  # Default: use 'trivy' from system PATH
+#TRIVY_PATH = 'C:\\devhome\\projects\\tools\\trivy.exe'
 
 # Path to Trivy cache directory for offline usage (optional)
 # If set, Trivy will use this cache and skip database updates (offline mode)
@@ -51,13 +53,15 @@ TRIVY_PATH = 'trivy'  # Default: use 'trivy' from system PATH
 #   - Absolute path: '/path/to/trivy-cache'
 #   - Windows: 'C:\\tools\\trivy-cache'
 TRIVY_CACHE_DIR = './tools/trivy-cache'  # Default: use local cache in tools directory
-TRIVY_CACHE_DIR = 'C:\\devhome\\projects\\tools\\trivy.exe'
+#TRIVY_CACHE_DIR = 'C:\\devhome\\projects\\tools\\trivy.exe'
+
 # Path to CodeMaat JAR file - for code evolution analysis
 # Examples:
 #   - Relative path: './tools/cm.jar'
 #   - Absolute path: '/usr/local/bin/cm.jar'
 #   - Windows: 'C:\\tools\\cm.jar'
 CODEMAAT_JAR_PATH = './tools/cm.jar'  # Default: use cm.jar in tools directory
+#CODEMAAT_JAR_PATH = 'C:\\devhome\\projects\\tools\\cm.jar'
 # ============================================================================
 
 
@@ -720,67 +724,96 @@ def analyze_hotspots(repo_name, repo_results_dir, complexity_data, codemaat_enab
                 complexity
             )
         
-        # Calculate averages
+        # Calculate averages and normalize paths for efficient matching
+        normalized_complexity = {}
         for file_path in file_complexity:
             file_complexity[file_path]['avg_complexity'] = round(
                 file_complexity[file_path]['total_complexity'] / 
                 file_complexity[file_path]['function_count'], 
                 2
             )
+            # Normalize path for matching (use forward slashes, lowercase for case-insensitive)
+            normalized_key = os.path.normpath(file_path).replace('\\', '/').lower()
+            normalized_complexity[normalized_key] = (file_path, file_complexity[file_path])
         
         # 3. Combine revisions + complexity to find hotspots
+        print(f"  Matching {len(revisions)} files with {len(file_complexity)} complexity entries...")
         hotspots = []
+        unmatched_count = 0
         
-        for file_path, revs in revisions.items():
-            # Try to match file paths (CodeMaat may have different path format)
-            matched_complexity = None
-            
-            # Direct match
-            if file_path in file_complexity:
-                matched_complexity = file_complexity[file_path]
-            else:
-                # Partial match (file ends with path or vice versa)
-                for complex_file in file_complexity.keys():
-                    if complex_file.endswith(file_path) or file_path.endswith(complex_file):
-                        matched_complexity = file_complexity[complex_file]
-                        break
-            
-            if matched_complexity:
-                avg_complexity = matched_complexity['avg_complexity']
-                max_complexity = matched_complexity['max_complexity']
+        try:
+            for idx, (file_path, revs) in enumerate(revisions.items()):
+                # Progress indicator for large datasets (every 1000 files)
+                if idx > 0 and idx % 1000 == 0:
+                    print(f"  Progress: {idx}/{len(revisions)} files processed...")
                 
-                # Calculate hotspot score
-                # Formula: (revisions * complexity) with normalization
-                # Higher score = bigger hotspot/problem
-                hotspot_score = round(
-                    (revs / 10) * (avg_complexity / 5) * 10, 
-                    2
-                )
+                # Try to match file paths (CodeMaat may have different path format)
+                matched_complexity = None
                 
-                # Risk level classification
-                risk_level = 'LOW'
-                if revs >= 50 and avg_complexity >= 15:
-                    risk_level = 'CRITICAL'
-                elif revs >= 50 and avg_complexity >= 8:
-                    risk_level = 'HIGH'
-                elif revs >= 30 and avg_complexity >= 8:
-                    risk_level = 'HIGH'
-                elif revs >= 20 or avg_complexity >= 10:
-                    risk_level = 'MEDIUM'
+                # Normalize revision file path
+                norm_rev_path = os.path.normpath(file_path).replace('\\', '/').lower()
                 
-                hotspots.append({
-                    'file': file_path,
-                    'revisions': revs,
-                    'avg_complexity': avg_complexity,
-                    'max_complexity': max_complexity,
-                    'function_count': matched_complexity['function_count'],
-                    'total_nloc': matched_complexity['total_nloc'],
-                    'hotspot_score': hotspot_score,
-                    'risk_level': risk_level
-                })
+                # Try direct match first (fastest - O(1) lookup)
+                if norm_rev_path in normalized_complexity:
+                    _, matched_complexity = normalized_complexity[norm_rev_path]
+                else:
+                    # Try suffix matching only if needed (slower - O(n) worst case)
+                    # This handles cases where paths differ (e.g., relative vs absolute)
+                    for norm_complex_path, (original_path, complexity_data) in normalized_complexity.items():
+                        if norm_complex_path.endswith(norm_rev_path) or norm_rev_path.endswith(norm_complex_path):
+                            matched_complexity = complexity_data
+                            break
+                
+                if matched_complexity:
+                    avg_complexity = matched_complexity['avg_complexity']
+                    max_complexity = matched_complexity['max_complexity']
+                    
+                    # Calculate hotspot score
+                    # Formula: (revisions * complexity) with normalization
+                    # Higher score = bigger hotspot/problem
+                    hotspot_score = round(
+                        (revs / 10) * (avg_complexity / 5) * 10, 
+                        2
+                    )
+                    
+                    # Risk level classification
+                    risk_level = 'LOW'
+                    if revs >= 50 and avg_complexity >= 15:
+                        risk_level = 'CRITICAL'
+                    elif revs >= 50 and avg_complexity >= 8:
+                        risk_level = 'HIGH'
+                    elif revs >= 30 and avg_complexity >= 8:
+                        risk_level = 'HIGH'
+                    elif revs >= 20 or avg_complexity >= 10:
+                        risk_level = 'MEDIUM'
+                    
+                    hotspots.append({
+                        'file': file_path,
+                        'revisions': revs,
+                        'avg_complexity': avg_complexity,
+                        'max_complexity': max_complexity,
+                        'function_count': matched_complexity['function_count'],
+                        'total_nloc': matched_complexity['total_nloc'],
+                        'hotspot_score': hotspot_score,
+                        'risk_level': risk_level
+                    })
+                else:
+                    unmatched_count += 1
+        
+        except Exception as e:
+            print(f"  Error during hotspot matching: {e}")
+            print(f"  Processed {len(hotspots)} hotspots before error")
+            if len(hotspots) == 0:
+                return None
+        
+        # Report matching statistics
+        match_rate = round((len(hotspots) / len(revisions) * 100), 1) if revisions else 0
+        print(f"  Matched {len(hotspots)}/{len(revisions)} files ({match_rate}%)")
+        if unmatched_count > 0:
+            print(f"  Note: {unmatched_count} files have no complexity data (non-code files or excluded)")
         
         if not hotspots:
-            print(f"  Warning: No hotspots identified")
+            print(f"  Warning: No hotspots identified (no files matched complexity data)")
             return None
         
         # Sort by hotspot score (highest first)
