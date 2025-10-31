@@ -51,7 +51,7 @@ TRIVY_PATH = 'trivy'  # Default: use 'trivy' from system PATH
 #   - Absolute path: '/path/to/trivy-cache'
 #   - Windows: 'C:\\tools\\trivy-cache'
 TRIVY_CACHE_DIR = './tools/trivy-cache'  # Default: use local cache in tools directory
-
+TRIVY_CACHE_DIR = 'C:\\devhome\\projects\\tools\\trivy.exe'
 # Path to CodeMaat JAR file - for code evolution analysis
 # Examples:
 #   - Relative path: './tools/cm.jar'
@@ -294,9 +294,12 @@ def analyze_with_lizard(repo_path):
     """Run Lizard code complexity analysis using subprocess"""
     print(f"  Running Lizard complexity analysis...")
     try:
+        # Determine Python command (python3 on Unix/Mac, python on Windows)
+        python_cmd = sys.executable if sys.executable else "python"
+        
         # Run lizard via subprocess with CSV output for easier parsing
         cmd = [
-            "python3", "-m", "lizard",
+            python_cmd, "-m", "lizard",
             "--csv",
             # Exclude common infrastructure directories
             "-x", "*/node_modules/*",
@@ -833,11 +836,14 @@ def run_geographic_analysis(commits_file, output_dir):
             print(f"  Warning: Geographic analysis script not found: {geo_script}")
             return False
         
+        # Determine Python command (python3 on Unix/Mac, python on Windows)
+        python_cmd = sys.executable if sys.executable else "python"
+        
         # Run the geographic analysis script
         output_file = os.path.join(output_dir, 'geographic_distribution.json')
         
         result = subprocess.run(
-            ['python3', geo_script, commits_file, output_file],
+            [python_cmd, geo_script, commits_file, output_file],
             capture_output=True,
             text=True,
             timeout=60  # 1 minute timeout
