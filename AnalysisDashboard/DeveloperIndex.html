@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Developer Index - Analytics Dashboard</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'brand-blue': '#1E3A8A',
+                        'brand-light': '#3B82F6',
+                        'brand-dark': '#1E40AF',
+                        'brand-accent': '#06B6D4'
+                    }
+                }
+            },
+            darkMode: 'class'
+        }
+    </script>
+    
+    <!-- Chart.js with plugins -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    
+    <!-- ApexCharts for better responsiveness -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    
+    <!-- D3.js for custom responsive visualizations -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    
+    <!-- Leaflet.js for maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Custom Styles -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body { font-family: 'Inter', sans-serif; }
+        
+        .dashboard-card {
+            @apply bg-white dark:bg-gray-800 shadow-lg hover:shadow-xl transition-all duration-300;
+            border: 2px solid #DBEAFE !important;
+            border-radius: 16px !important;
+            padding: 24px !important;
+        }
+        
+        .nav-item {
+            @apply flex items-center px-4 py-3 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-brand-blue dark:hover:text-brand-light transition-all duration-200 rounded-lg mx-2 my-1;
+        }
+        
+        .nav-item.active {
+            @apply bg-brand-blue text-white hover:bg-brand-dark;
+        }
+        
+        .metric-card {
+            @apply bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-900 shadow-md hover:shadow-lg transition-all duration-300;
+            border: 2px solid #DBEAFE !important;
+            border-radius: 16px !important;
+            padding: 24px !important;
+        }
+        
+        .chart-container {
+            @apply bg-white dark:bg-gray-800 shadow-lg transition-all duration-300;
+            border: 2px solid #DBEAFE !important;
+            border-radius: 16px !important;
+            padding: 16px !important;
+            min-height: 300px;
+        }
+        
+        .responsive-chart {
+            width: 100%;
+            height: 320px;
+            min-height: 250px;
+        }
+        
+        .filter-container {
+            @apply bg-white dark:bg-gray-800 shadow-lg transition-all duration-300;
+            border: 2px solid #DBEAFE !important;
+            border-radius: 16px !important;
+            padding: 20px !important;
+        }
+        
+        .developer-card {
+            @apply bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4;
+        }
+        
+        @media (max-width: 768px) {
+            .chart-container {
+                padding: 12px !important;
+                margin-bottom: 16px;
+            }
+            
+            .metric-card {
+                padding: 16px !important;
+                margin-bottom: 12px;
+            }
+            
+            .dashboard-card {
+                padding: 16px !important;
+            }
+        }
+        
+        .sidebar {
+            @apply bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 shadow-lg;
+        }
+    </style>
+</head>
+<body class="h-full bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+    <!-- Navigation Sidebar -->
+    <nav id="sidebar" class="sidebar fixed inset-y-0 left-0 z-50 w-64 transform -translate-x-full transition-transform lg:translate-x-0">
+        <div class="flex flex-col h-full">
+            <!-- Logo/Header -->
+            <div class="flex items-center justify-center h-16 px-4 border-b border-gray-200 dark:border-gray-700">
+                <h1 class="text-xl font-bold text-brand-blue dark:text-brand-light">
+                    <i class="fas fa-chart-network mr-2"></i>Analytics Dashboard
+                </h1>
+            </div>
+            
+            <!-- Navigation Items -->
+            <div class="flex-1 py-6">
+                <!-- Main Dashboard -->
+                <div class="px-4 mb-6">
+                    <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Overview</h3>
+                    <ul class="space-y-2">
+                        <li>
+                            <a href="index.html" class="nav-item">
+                                <i class="fas fa-home w-5 h-5 mr-3"></i>
+                                Dashboard
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Horizontal Separator -->
+                <div class="px-4 mb-6">
+                    <div class="h-px bg-gray-200 dark:bg-gray-700"></div>
+                </div>
+
+                <!-- Analytics Sections -->
+                <div class="px-4 mb-6">
+                    <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Analytics</h3>
+                    <ul class="space-y-2">
+                        <li>
+                            <a href="technology.html" class="nav-item">
+                                <i class="fas fa-code w-5 h-5 mr-3"></i>
+                                Technology
+                            </a>
+                        </li>
+                        <li>
+                            <a href="people.html" class="nav-item">
+                                <i class="fas fa-users w-5 h-5 mr-3"></i>
+                                People & Process
+                            </a>
+                        </li>
+                        <li>
+                            <a href="region.html" class="nav-item">
+                                <i class="fas fa-globe-americas w-5 h-5 mr-3"></i>
+                                Region
+                            </a>
+                        </li>
+                        <li>
+                            <a href="security.html" class="nav-item">
+                                <i class="fas fa-shield-alt w-5 h-5 mr-3"></i>
+                                Security
+                            </a>
+                        </li>
+                        <li>
+                            <a href="knowledge.html" class="nav-item">
+                                <i class="fas fa-book w-5 h-5 mr-3"></i>
+                                Knowledge
+                            </a>
+                        </li>
+                        <li>
+                            <a href="risk.html" class="nav-item">
+                                <i class="fas fa-exclamation-triangle w-5 h-5 mr-3"></i>
+                                Risk Management
+                            </a>
+                        </li>
+                        <li>
+                            <a href="DeveloperIndex.html" class="nav-item active">
+                                <i class="fas fa-address-card w-5 h-5 mr-3"></i>
+                                Developer Index
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+
+            </div>
+            
+            <!-- Theme Toggle & Settings -->
+            <div class="border-t border-gray-200 dark:border-gray-700 p-4">
+                <button id="themeToggle" class="w-full flex items-center justify-center px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+                    <i class="fas fa-moon dark:hidden mr-2"></i>
+                    <i class="fas fa-sun hidden dark:inline mr-2"></i>
+                    <span class="dark:hidden">Dark Mode</span>
+                    <span class="hidden dark:inline">Light Mode</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Mobile Menu Button -->
+    <button id="sidebarToggle" class="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg">
+        <i class="fas fa-bars text-gray-600 dark:text-gray-300"></i>
+    </button>
+    
+    <!-- Main Content -->
+    <main class="lg:ml-64">
+        <!-- Header -->
+        <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Developer Index</h1>
+                    <p class="text-gray-600 dark:text-gray-400 mt-1">Comprehensive directory of developers and their contributions</p>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-500 dark:text-gray-400">Last Updated: <span id="lastUpdated">Loading...</span></span>
+                    <button id="refreshData" class="px-4 py-2 bg-brand-blue text-white rounded-lg hover:bg-brand-dark transition-colors">
+                        <i class="fas fa-sync-alt mr-2"></i>Refresh
+                    </button>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Dashboard Content -->
+        <div class="p-6">
+            <!-- Loading Indicator -->
+            <div id="loadingIndicator" class="flex items-center justify-center py-12">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-blue"></div>
+                <span class="ml-3 text-gray-600 dark:text-gray-400">Loading developer index...</span>
+            </div>
+            
+            <!-- Dashboard Content (Hidden initially) -->
+            <div id="dashboardContent" class="hidden">
+                <!-- Filters Panel -->
+                <div class="filter-container mb-6">
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                        <i class="fas fa-filter mr-2 text-brand-blue"></i>
+                        Search & Filter Developers
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Search -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                Search Developer
+                            </label>
+                            <input type="text" id="developerSearch" placeholder="Enter developer name..." class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-blue focus:border-transparent">
+                        </div>
+                        <!-- Repository Filter -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                Repository
+                            </label>
+                            <select id="projectFilter" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-blue focus:border-transparent">
+                                <option value="combined">All Repositories</option>
+                                <!-- Options will be populated dynamically from AnalysisData -->
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Developer Index Content -->
+                <div class="dashboard-card relative">
+                    <div class="flex items-center justify-between mb-6">
+                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                            <i class="fas fa-address-card mr-2 text-brand-blue"></i>
+                            Developer Directory
+                        </h3>
+                        
+                        <!-- View Toggle and Scoring Weights Container -->
+                        <div class="flex items-center space-x-3">
+                            <!-- View Toggle (will be populated by JS) -->
+                            <div id="viewToggleContainer" class="flex items-center space-x-2">
+                                <!-- View toggle buttons and sort controls will be added here dynamically -->
+                            </div>
+                            
+                            <!-- Scoring Weights Panel (Next to View Toggle) -->
+                            <div id="scoringWeightsPanel" class="relative">
+                                <button id="toggleWeightsInfo" class="text-xs text-gray-500 dark:text-gray-400 hover:text-brand-blue dark:hover:text-brand-light transition-colors flex items-center space-x-1 bg-white dark:bg-gray-800 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md">
+                                    <i class="fas fa-info-circle text-xs"></i>
+                                    <span>Scoring Weights</span>
+                                </button>
+                                <div id="weightsInfo" class="hidden absolute top-full right-0 mt-1 w-56 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-lg p-2.5 z-20">
+                                    <h4 class="text-xs font-semibold text-gray-900 dark:text-white mb-2 flex items-center">
+                                        <i class="fas fa-info-circle mr-1.5 text-brand-blue text-xs"></i>
+                                        Scoring Weights
+                                    </h4>
+                                    <div id="weightsContent" class="text-xs text-gray-600 dark:text-gray-400">
+                                        <!-- Weights will be populated here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="developerIndexContent" class="space-y-4">
+                        <!-- Dynamic content will be populated here -->
+                        <p class="text-gray-600 dark:text-gray-400">Loading developer information...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <!-- JavaScript -->
+    <script src="js/shared/analysis-data-adapter.js?v=20250107r"></script>
+    <script src="js/shared/utils.js?v=20250107j"></script>
+    <script src="js/shared/charts.js?v=20250107j"></script>
+    <script src="js/developer-index.js?v=20250107r"></script>
+</body>
+</html>
