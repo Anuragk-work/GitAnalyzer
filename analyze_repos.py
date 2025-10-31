@@ -150,12 +150,13 @@ def collect_commit_data(repo_path):
     print(f"  Collecting commit history (last 2 years)...")
     try:
         # Git log command to extract commit data (last 2 years only)
+        # Use pipe delimiter to avoid JSON escaping issues with commit messages
         cmd = [
             "git", "-C", repo_path,
             "log", "--all",
             "--since=2.years",  # Only commits from last 2 years
             "--date=iso-strict",
-            "--pretty=format:{\"hash\":\"%H\",\"author_name\":\"%an\",\"author_email\":\"%ae\",\"date\":\"%ad\",\"message\":\"%s\"}"
+            "--pretty=format:%H|%an|%ae|%ad|%s"  # Use pipe delimiter
         ]
         
         result = subprocess.run(
@@ -173,15 +174,24 @@ def collect_commit_data(repo_path):
             print(f"  Warning: No commits found")
             return []
         
-        # Parse each line as JSON and collect into array
+        # Parse each line and create JSON objects
         commits = []
         for line in result.stdout.strip().split('\n'):
             if line.strip():
                 try:
-                    commit = json.loads(line)
-                    commits.append(commit)
-                except json.JSONDecodeError as e:
-                    print(f"  Warning: Failed to parse commit line: {e}")
+                    # Split by pipe delimiter (max 5 parts to handle pipes in messages)
+                    parts = line.split('|', 4)
+                    if len(parts) >= 5:
+                        commit = {
+                            "hash": parts[0],
+                            "author_name": parts[1],
+                            "author_email": parts[2],
+                            "date": parts[3],
+                            "message": parts[4]  # Keep original message
+                        }
+                        commits.append(commit)
+                except Exception:
+                    # Silently skip malformed lines
                     continue
         
         print(f"  Collected {len(commits)} commits")
